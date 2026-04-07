@@ -34,8 +34,18 @@ void rc_game_player(const void *handle, int *out_x, int *out_y);
  */
 int rc_game_tiles(const void *handle, uint8_t *out, size_t cap);
 
-/** 玩家是否站在樓梯上 */
-int rc_game_done(const void *handle);
+/**
+ * 嘗試下樓：若玩家站在樓梯上則進入下一層，回傳 1。
+ * 若已到最終層（RC_MAX_FLOORS）則回傳 2（勝利）。
+ * 否則回傳 0（不在樓梯上）。
+ */
+int rc_game_descend(void *handle);
+
+/** 玩家是否已通關（完成所有層） */
+int rc_game_won(const void *handle);
+
+/** 目前層數（1-based） */
+int rc_game_floor(const void *handle);
 
 /** 玩家是否死亡（HP <= 0） */
 int rc_game_dead(const void *handle);
@@ -68,7 +78,8 @@ const char *rc_game_last_message(const void *handle);
 #define RC_GAME_WIDTH 42
 #define RC_GAME_HEIGHT 22
 #define RC_MAX_MONSTERS 16
-#define RC_PLAYER_START_HP 20
+#define RC_PLAYER_START_HP 25
+#define RC_MAX_FLOORS 5
 
 #ifdef __cplusplus
 }

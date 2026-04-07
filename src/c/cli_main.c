@@ -221,10 +221,11 @@ int main(int argc, char **argv) {
         if (!g_line_mode) {
             clear_screen();
         }
+        int fl = rc_game_floor(g);
         if (g_use_color) {
-            printf("%srogue_cli%s  seed=%u  ", ANSI_TITLE, ANSI_RESET, (unsigned)seed);
+            printf("%srogue_cli%s  seed=%u  B%dF  ", ANSI_TITLE, ANSI_RESET, (unsigned)seed, fl);
         } else {
-            printf("rogue_cli  seed=%u  ", (unsigned)seed);
+            printf("rogue_cli  seed=%u  B%dF  ", (unsigned)seed, fl);
         }
         print_hp_bar(rc_game_player_hp(g), rc_game_player_max_hp(g));
         puts("\n");
@@ -255,13 +256,25 @@ int main(int argc, char **argv) {
             }
             break;
         }
-        if (rc_game_done(g)) {
+        if (rc_game_won(g)) {
             if (g_use_color) {
-                printf("\n%s你抵達樓梯，勝利！%s\n", ANSI_TITLE, ANSI_RESET);
+                printf("\n%s你征服了全部地城，勝利！%s\n", ANSI_TITLE, ANSI_RESET);
             } else {
-                puts("\n你抵達樓梯，勝利！");
+                puts("\n你征服了全部地城，勝利！");
             }
             break;
+        }
+        {
+            int desc = rc_game_descend(g);
+            if (desc == 2) {
+                const char *dm = rc_game_last_message(g);
+                status = (dm && dm[0]) ? dm : "通關！";
+                continue;
+            } else if (desc == 1) {
+                const char *dm = rc_game_last_message(g);
+                status = (dm && dm[0]) ? dm : "下一層！";
+                continue;
+            }
         }
 
         int ci;

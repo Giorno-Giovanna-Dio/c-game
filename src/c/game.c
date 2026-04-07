@@ -20,6 +20,8 @@ typedef struct {
     Monster monsters[RC_MAX_MONSTERS];
     int nmonsters;
     char msg[128];
+    int floor;
+    int won;
 } Game;
 
 static int idx(int w, int x, int y) { return y * w + x; }
@@ -41,9 +43,11 @@ static int monster_at(const Game *g, int x, int y) {
 static int abs_i(int v) { return v < 0 ? -v : v; }
 
 static void spawn_monsters(Game *g) {
-    int count = rc_rng_range(&g->rng, 3, 6);
+    int count = rc_rng_range(&g->rng, 3, 3 + g->floor);
     if (count > RC_MAX_MONSTERS) count = RC_MAX_MONSTERS;
     g->nmonsters = 0;
+    int hp_lo = 2;
+    int hp_hi = 3 + g->floor / 2;
     for (int t = 0; t < 200 && g->nmonsters < count; t++) {
         int x = rc_rng_range(&g->rng, 1, g->w - 2);
         int y = rc_rng_range(&g->rng, 1, g->h - 2);
@@ -55,9 +59,18 @@ static void spawn_monsters(Game *g) {
         Monster *m = &g->monsters[g->nmonsters++];
         m->x = x;
         m->y = y;
-        m->hp = rc_rng_range(&g->rng, 2, 5);
+        m->hp = rc_rng_range(&g->rng, hp_lo, hp_hi);
         m->alive = 1;
     }
+}
+
+static void generate_floor(Game *g) {
+    int si = 0, pi = 0;
+    rc_dungeon_generate(&g->rng, g->w, g->h, g->tiles, &si, &pi);
+    g->px = pi % g->w;
+    g->py = pi / g->w;
+    g->msg[0] = '\0';
+    spawn_monsters(g);
 }
 
 static void monster_ai(Game *g) {
@@ -96,14 +109,11 @@ void *rc_game_create(uint32_t seed) {
     g->tiles = (uint8_t *)malloc((size_t)g->w * (size_t)g->h);
     if (!g->tiles) { free(g); return NULL; }
     rc_rng_seed(&g->rng, seed);
-    int si = 0, pi = 0;
-    rc_dungeon_generate(&g->rng, g->w, g->h, g->tiles, &si, &pi);
-    g->px = pi % g->w;
-    g->py = pi / g->w;
     g->max_hp = RC_PLAYER_START_HP;
     g->hp = g->max_hp;
-    g->msg[0] = '\0';
-    spawn_monsters(g);
+    g->floor = 1;
+    g->won = 0;
+    generate_floor(g);
     return g;
 }
 
@@ -174,10 +184,33 @@ int rc_game_tiles(const void *handle, uint8_t *out, size_t cap) {
     return (int)need;
 }
 
-int rc_game_done(const void *handle) {
+int rc_game_descend(void *handle) {
+    Game *g = (Game *)handle;
+    if (!g) return 0;
+    if (tile_at(g, g->px, g->py) != RC_TILE_STAIRS) return 0;
+    if (g->floor >= RC_MAX_FLOORS) {
+        g->won = 1;
+        snprintf(g->msg, sizeof g->msg, "你征服了全部 %d 層地城！", RC_MAX_FLOORS);
+        return 2;
+    }
+    g->floor++;
+    int heal = 5 + g->floor;
+    g->hp += heal;
+    if (g->hp > g->max_hp) g->hp = g->max_hp;
+    snprintf(g->msg, sizeof g->msg, "進入第 %d 層！回復 %d HP", g->floor, heal);
+    generate_floor(g);
+    return 1;
+}
+
+int rc_game_won(const void *handle) {
     const Game *g = (const Game *)handle;
     if (!g) return 0;
-    return tile_at(g, g->px, g->py) == RC_TILE_STAIRS ? 1 : 0;
+    return g->won;
+}
+
+int rc_game_floor(const void *handle) {
+    const Game *g = (const Game *)handle;
+    return g ? g->floor : 0;
 }
 
 int rc_game_dead(const void *handle) {

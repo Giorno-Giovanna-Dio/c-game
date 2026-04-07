@@ -35,8 +35,7 @@ HELP_TEXT = """
   地板 / 牆 / 樓梯見畫面圖例
   互動終端機：直接按鍵，不必 Enter — w 上 s 下 a 左 d 右（方向鍵亦可）
   ? 或 h = 說明　q = 結束
-  若改為「每行輸入」模式：請加參數 --line-mode
-目標：避開或擊殺怪物，在 HP 歸零前走到樓梯。
+目標：走到樓梯 > 下樓，征服全部 5 層地城！越深怪越多越強。
 """.strip()
 
 
@@ -59,8 +58,12 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_player.restype = None
     lib.rc_game_tiles.argtypes = [c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
     lib.rc_game_tiles.restype = c_int
-    lib.rc_game_done.argtypes = [c_void_p]
-    lib.rc_game_done.restype = c_int
+    lib.rc_game_descend.argtypes = [c_void_p]
+    lib.rc_game_descend.restype = c_int
+    lib.rc_game_won.argtypes = [c_void_p]
+    lib.rc_game_won.restype = c_int
+    lib.rc_game_floor.argtypes = [c_void_p]
+    lib.rc_game_floor.restype = c_int
     lib.rc_game_dead.argtypes = [c_void_p]
     lib.rc_game_dead.restype = c_int
     lib.rc_game_player_hp.argtypes = [c_void_p]
@@ -143,10 +146,11 @@ def main() -> None:
             clear_screen()
         hp = lib.rc_game_player_hp(g)
         max_hp = lib.rc_game_player_max_hp(g)
+        fl = lib.rc_game_floor(g)
         if use_color:
-            print(f"{TermStyle.TITLE}c-game{R}  seed={args.seed}  {format_hp_bar(hp, max_hp, color=True)}")
+            print(f"{TermStyle.TITLE}c-game{R}  seed={args.seed}  B{fl}F  {format_hp_bar(hp, max_hp, color=True)}")
         else:
-            print(f"c-game  seed={args.seed}  {format_hp_bar(hp, max_hp, color=False)}")
+            print(f"c-game  seed={args.seed}  B{fl}F  {format_hp_bar(hp, max_hp, color=False)}")
         print()
         if lib.rc_game_tiles(g, buf, n) < 0:
             print("rc_game_tiles 失敗", file=sys.stderr)
@@ -181,12 +185,26 @@ def main() -> None:
                 else:
                     print("\n你被怪物擊殺，遊戲結束！\n")
                 break
-            if lib.rc_game_done(g):
+            if lib.rc_game_won(g):
                 if use_color:
-                    print(f"\n{TermStyle.TITLE}你抵達樓梯，勝利！{R}\n")
+                    print(f"\n{TermStyle.TITLE}你征服了全部地城，勝利！{R}\n")
                 else:
-                    print("\n你抵達樓梯，勝利！\n")
+                    print("\n你征服了全部地城，勝利！\n")
                 break
+            desc = lib.rc_game_descend(g)
+            if desc == 2:
+                cmsg = get_combat_msg()
+                status = cmsg if cmsg else "通關！"
+                draw_frame()
+                if use_color:
+                    print(f"\n{TermStyle.TITLE}你征服了全部地城，勝利！{R}\n")
+                else:
+                    print("\n你征服了全部地城，勝利！\n")
+                break
+            elif desc == 1:
+                cmsg = get_combat_msg()
+                status = cmsg if cmsg else f"進入第 {lib.rc_game_floor(g)} 層！"
+                continue
 
             if line_mode:
                 s = read_line_fallback("移動 (w/a/s/d，? 說明，q 離開) > ")
