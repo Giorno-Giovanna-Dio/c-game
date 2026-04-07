@@ -9,6 +9,7 @@ typedef struct {
     int x, y;
     int hp;
     int alive;
+    int type;
 } Monster;
 
 typedef struct {
@@ -73,12 +74,19 @@ static int monster_at(const Game *g, int x, int y) {
 
 static int abs_i(int v) { return v < 0 ? -v : v; }
 
+static const char *mon_name(int type) {
+    switch (type) {
+    case RC_MON_ZOMBIE: return "殭屍";
+    case RC_MON_SLIME:  return "史萊姆";
+    case RC_MON_HUNTER: return "獵人";
+    default: return "怪物";
+    }
+}
+
 static void spawn_monsters(Game *g) {
     int count = rc_rng_range(&g->rng, 3, 3 + g->floor);
     if (count > RC_MAX_MONSTERS) count = RC_MAX_MONSTERS;
     g->nmonsters = 0;
-    int hp_lo = 2;
-    int hp_hi = 3 + g->floor / 2;
     for (int t = 0; t < 200 && g->nmonsters < count; t++) {
         int x = rc_rng_range(&g->rng, 1, g->w - 2);
         int y = rc_rng_range(&g->rng, 1, g->h - 2);
@@ -90,7 +98,25 @@ static void spawn_monsters(Game *g) {
         Monster *m = &g->monsters[g->nmonsters++];
         m->x = x;
         m->y = y;
-        m->hp = rc_rng_range(&g->rng, hp_lo, hp_hi);
+        int roll = rc_rng_range(&g->rng, 0, 9);
+        if (g->floor <= 2) {
+            m->type = (roll < 6) ? RC_MON_ZOMBIE : RC_MON_SLIME;
+        } else {
+            if (roll < 4) m->type = RC_MON_ZOMBIE;
+            else if (roll < 7) m->type = RC_MON_SLIME;
+            else m->type = RC_MON_HUNTER;
+        }
+        switch (m->type) {
+        case RC_MON_SLIME:
+            m->hp = rc_rng_range(&g->rng, 4, 5 + g->floor / 2);
+            break;
+        case RC_MON_HUNTER:
+            m->hp = rc_rng_range(&g->rng, 3, 4 + g->floor / 2);
+            break;
+        default:
+            m->hp = rc_rng_range(&g->rng, 2, 3 + g->floor / 2);
+            break;
+        }
         m->alive = 1;
     }
 }
@@ -139,17 +165,29 @@ static void pickup_item(Game *g) {
         break;
     }
     case RC_ITEM_BLINK: {
-        int attempts = 0;
-        while (attempts < 100) {
+        int best_x = -1, best_y = -1, best_dist = -1;
+        for (int att = 0; att < 120; att++) {
             int bx = rc_rng_range(&g->rng, 1, g->w - 2);
             int by = rc_rng_range(&g->rng, 1, g->h - 2);
-            if (tile_at(g, bx, by) == RC_TILE_FLOOR && monster_at(g, bx, by) < 0) {
-                g->px = bx;
-                g->py = by;
-                snprintf(g->msg, sizeof g->msg, "拾取閃現卷軸 ~ 瞬移到 (%d,%d)！", bx, by);
-                break;
+            if (tile_at(g, bx, by) != RC_TILE_FLOOR) continue;
+            if (monster_at(g, bx, by) >= 0) continue;
+            int safe = 1, min_md = 999;
+            for (int j = 0; j < g->nmonsters; j++) {
+                if (!g->monsters[j].alive) continue;
+                int md = abs_i(bx - g->monsters[j].x) + abs_i(by - g->monsters[j].y);
+                if (md < min_md) min_md = md;
+                if (md < 4) { safe = 0; break; }
             }
-            attempts++;
+            if (safe && min_md > best_dist) {
+                best_x = bx; best_y = by; best_dist = min_md;
+            }
+        }
+        if (best_x >= 0) {
+            g->px = best_x;
+            g->py = best_y;
+            snprintf(g->msg, sizeof g->msg, "閃現卷軸 ~ 瞬移到安全位置！");
+        } else {
+            snprintf(g->msg, sizeof g->msg, "閃現卷軸 ~ 無處可去…");
         }
         break;
     }
@@ -176,31 +214,69 @@ static void generate_floor(Game *g) {
     update_fov(g);
 }
 
+/* chase: 1=追蹤, 0=隨機, -1=逃跑 */
+static void move_monster_once(Game *g, Monster *m, int chase, int can_attack) {
+    int dx = 0, dy = 0;
+    if (chase == 1) {
+        int diffx = g->px - m->x;
+        int diffy = g->py - m->y;
+        if (abs_i(diffx) >= abs_i(diffy))
+            dx = (diffx > 0) ? 1 : (diffx < 0 ? -1 : 0);
+        else
+            dy = (diffy > 0) ? 1 : (diffy < 0 ? -1 : 0);
+    } else if (chase == -1) {
+        int diffx = g->px - m->x;
+        int diffy = g->py - m->y;
+        if (abs_i(diffx) >= abs_i(diffy))
+            dx = (diffx > 0) ? -1 : (diffx < 0 ? 1 : 0);
+        else
+            dy = (diffy > 0) ? -1 : (diffy < 0 ? 1 : 0);
+    } else {
+        int dir = rc_rng_range(&g->rng, 0, 3);
+        const int dirs[4][2] = {{0,-1},{0,1},{-1,0},{1,0}};
+        dx = dirs[dir][0]; dy = dirs[dir][1];
+    }
+    int nx = m->x + dx;
+    int ny = m->y + dy;
+    if (!in_bounds(g, nx, ny) || tile_at(g, nx, ny) == RC_TILE_WALL) return;
+    if (monster_at(g, nx, ny) >= 0) return;
+    if (nx == g->px && ny == g->py) {
+        if (!can_attack) return;
+        int lo = 2, hi = 3;
+        if (m->type == RC_MON_SLIME)  { lo = 1; hi = 1; }
+        if (m->type == RC_MON_HUNTER) { lo = 2; hi = 3; }
+        int dmg = rc_rng_range(&g->rng, lo, hi);
+        g->hp -= dmg;
+        if (g->hp < 0) g->hp = 0;
+        snprintf(g->msg, sizeof g->msg, "%s攻擊你！-%d HP（剩 %d）", mon_name(m->type), dmg, g->hp);
+        return;
+    }
+    m->x = nx;
+    m->y = ny;
+}
+
 static void monster_ai(Game *g) {
     for (int i = 0; i < g->nmonsters; i++) {
         Monster *m = &g->monsters[i];
         if (!m->alive) continue;
-        int dx = 0, dy = 0;
-        int diffx = g->px - m->x;
-        int diffy = g->py - m->y;
-        if (abs_i(diffx) >= abs_i(diffy)) {
-            dx = (diffx > 0) ? 1 : (diffx < 0 ? -1 : 0);
-        } else {
-            dy = (diffy > 0) ? 1 : (diffy < 0 ? -1 : 0);
+        switch (m->type) {
+        case RC_MON_ZOMBIE: {
+            int dist = abs_i(g->px - m->x) + abs_i(g->py - m->y);
+            if (dist <= 6)
+                move_monster_once(g, m, 1, 1);
+            break;
         }
-        int nx = m->x + dx;
-        int ny = m->y + dy;
-        if (!in_bounds(g, nx, ny) || tile_at(g, nx, ny) == RC_TILE_WALL) continue;
-        if (monster_at(g, nx, ny) >= 0) continue;
-        if (nx == g->px && ny == g->py) {
-            int dmg = rc_rng_range(&g->rng, 1, 3);
-            g->hp -= dmg;
-            if (g->hp < 0) g->hp = 0;
-            snprintf(g->msg, sizeof g->msg, "怪物攻擊你！-%d HP（剩 %d）", dmg, g->hp);
-            continue;
+        case RC_MON_SLIME:
+            move_monster_once(g, m, 0, 1);
+            break;
+        case RC_MON_HUNTER:
+            move_monster_once(g, m, 1, 1);
+            if (m->alive) {
+                int flee = (m->hp <= 1) ? -1 : 1;
+                move_monster_once(g, m, flee, 0);
+            }
+            break;
         }
-        m->x = nx;
-        m->y = ny;
     }
 }
 
@@ -273,9 +349,18 @@ int rc_game_move(void *handle, int dx, int dy) {
         m->hp -= dmg;
         if (m->hp <= 0) {
             m->alive = 0;
-            snprintf(g->msg, sizeof g->msg, "你擊殺了怪物！（傷害 %d）", dmg);
+            if (m->type == RC_MON_SLIME) {
+                int heal = 2;
+                g->hp += heal;
+                if (g->hp > g->max_hp) g->hp = g->max_hp;
+                snprintf(g->msg, sizeof g->msg,
+                    "擊殺史萊姆！（傷害 %d）+%d HP", dmg, heal);
+            } else {
+                snprintf(g->msg, sizeof g->msg,
+                    "你擊殺了%s！（傷害 %d）", mon_name(m->type), dmg);
+            }
         } else {
-            snprintf(g->msg, sizeof g->msg, "你攻擊怪物！--%d（怪物剩 %d HP）", dmg, m->hp);
+            snprintf(g->msg, sizeof g->msg, "你攻擊%s！--%d（剩 %d HP）", mon_name(m->type), dmg, m->hp);
         }
         monster_ai(g);
         update_fov(g);
@@ -366,10 +451,11 @@ int rc_game_monsters(const void *handle, int *out, int cap) {
     int wrote = 0;
     for (int i = 0; i < g->nmonsters; i++) {
         if (!g->monsters[i].alive) continue;
-        if ((wrote + 1) * 3 > cap) break;
-        out[wrote * 3 + 0] = g->monsters[i].x;
-        out[wrote * 3 + 1] = g->monsters[i].y;
-        out[wrote * 3 + 2] = g->monsters[i].hp;
+        if ((wrote + 1) * 4 > cap) break;
+        out[wrote * 4 + 0] = g->monsters[i].x;
+        out[wrote * 4 + 1] = g->monsters[i].y;
+        out[wrote * 4 + 2] = g->monsters[i].hp;
+        out[wrote * 4 + 3] = g->monsters[i].type;
         wrote++;
     }
     return wrote;

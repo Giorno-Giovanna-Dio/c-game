@@ -17,6 +17,8 @@ class TermStyle:
     PLAYER = "\033[1;93m"
     STAIRS = "\033[1;92m"
     MONSTER = "\033[1;91m"
+    MONSTER_SLIME = "\033[1;92m"
+    MONSTER_HUNTER = "\033[1;95m"
     HUD = "\033[36m"
     WARN = "\033[1;91m"
     TITLE = "\033[1;97m"
@@ -153,6 +155,14 @@ ITEM_SYMS = {0: "!", 1: "~", 2: "%"}
 ITEM_COLORS = {0: TermStyle.ITEM_POTION, 1: TermStyle.ITEM_BLINK, 2: TermStyle.ITEM_MAP}
 
 
+MON_SYMS = {0: "E", 1: "S", 2: "H"}
+MON_COLORS = {
+    0: TermStyle.MONSTER,
+    1: TermStyle.MONSTER_SLIME,
+    2: TermStyle.MONSTER_HUNTER,
+}
+
+
 def format_map_lines(
     buf: list[int],
     w: int,
@@ -161,14 +171,14 @@ def format_map_lines(
     py: int,
     *,
     color: bool,
-    monsters: list[tuple[int, int, int]] | None = None,
+    monsters: list[tuple[int, int, int, int]] | None = None,
     items: list[tuple[int, int, int]] | None = None,
     visibility: list[int] | None = None,
 ) -> list[str]:
     mon_set: dict[tuple[int, int], int] = {}
     if monsters:
-        for mx, my, mhp in monsters:
-            mon_set[(mx, my)] = mhp
+        for mx, my, _mhp, mtype in monsters:
+            mon_set[(mx, my)] = mtype
     item_set: dict[tuple[int, int], int] = {}
     if items:
         for ix, iy, itype in items:
@@ -219,11 +229,12 @@ def format_map_lines(
                 else:
                     parts.append(sym)
                 continue
-            is_m = (x, y) in mon_set
-            if is_m:
-                sym = "E"
+            mt = mon_set.get((x, y))
+            if mt is not None:
+                sym = MON_SYMS.get(mt, "E")
                 if color:
-                    parts.append(f"{TermStyle.MONSTER}{sym}{R}")
+                    mc = MON_COLORS.get(mt, TermStyle.MONSTER)
+                    parts.append(f"{mc}{sym}{R}")
                 else:
                     parts.append(sym)
                 continue

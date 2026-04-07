@@ -36,8 +36,10 @@ static const char *ANSI_FOG_UNSEEN = "\033[38;5;233m";
 static const char *ANSI_ITEM_POTION = "\033[1;95m";
 static const char *ANSI_ITEM_BLINK = "\033[1;96m";
 static const char *ANSI_ITEM_MAP = "\033[1;33m";
+static const char *ANSI_MON_SLIME = "\033[1;92m";
+static const char *ANSI_MON_HUNTER = "\033[1;95m";
 
-static int g_mon_xs[RC_MAX_MONSTERS], g_mon_ys[RC_MAX_MONSTERS];
+static int g_mon_xs[RC_MAX_MONSTERS], g_mon_ys[RC_MAX_MONSTERS], g_mon_types[RC_MAX_MONSTERS];
 static int g_mon_count = 0;
 static int g_itm_xs[RC_MAX_ITEMS], g_itm_ys[RC_MAX_ITEMS], g_itm_types[RC_MAX_ITEMS];
 static int g_itm_count = 0;
@@ -51,9 +53,12 @@ static void usage(const char *argv0) {
 
 static void print_help(void) {
     puts("【怎麼玩】");
-    puts("  @ = 玩家  E = 怪物（走進牠就攻擊）");
+    puts("  @ = 玩家");
+    puts("  E = 殭屍（靠近 6 格才醒來追你，普通攻擊）");
+    puts("  S = 史萊姆（隨機亂走，攻擊超弱但很耐打，殺掉回 2 HP！）");
+    puts("  H = 獵人（一回合走兩步！攻擊強但 HP 低，快死會逃跑。三層後出現）");
     puts("  ! = 治療藥水（走上去拾取，回復 HP）");
-    puts("  ~ = 閃現卷軸（走上去拾取，隨機瞬移）");
+    puts("  ~ = 閃現卷軸（走上去拾取，瞬移到安全位置）");
     puts("  % = 地圖卷軸（走上去拾取，揭示全層地形）");
     puts("  # = 牆  . = 地板  > = 樓梯");
     puts("  互動模式：直接按鍵不必 Enter；--line-mode 則每行一個字母再 Enter");
@@ -61,19 +66,23 @@ static void print_help(void) {
     puts("");
 }
 
-static int is_monster_at(int x, int y) {
+static int is_monster_at(int x, int y, int *out_type) {
     for (int i = 0; i < g_mon_count; i++) {
-        if (g_mon_xs[i] == x && g_mon_ys[i] == y) return 1;
+        if (g_mon_xs[i] == x && g_mon_ys[i] == y) {
+            if (out_type) *out_type = g_mon_types[i];
+            return 1;
+        }
     }
     return 0;
 }
 
 static void refresh_monsters(void *g) {
-    int buf[RC_MAX_MONSTERS * 3];
-    g_mon_count = rc_game_monsters(g, buf, RC_MAX_MONSTERS * 3);
+    int buf[RC_MAX_MONSTERS * 4];
+    g_mon_count = rc_game_monsters(g, buf, RC_MAX_MONSTERS * 4);
     for (int i = 0; i < g_mon_count; i++) {
-        g_mon_xs[i] = buf[i * 3];
-        g_mon_ys[i] = buf[i * 3 + 1];
+        g_mon_xs[i] = buf[i * 4];
+        g_mon_ys[i] = buf[i * 4 + 1];
+        g_mon_types[i] = buf[i * 4 + 3];
     }
 }
 
@@ -204,7 +213,17 @@ static void print_map(const uint8_t *tiles, int w, int h, int px, int py) {
                 continue;
             }
             if (x == px && y == py) { put_tile('@', ANSI_PLAYER); continue; }
-            if (is_monster_at(x, y)) { put_tile('E', ANSI_MONSTER); continue; }
+            {
+                int mtype;
+                if (is_monster_at(x, y, &mtype)) {
+                    char msym = 'E';
+                    const char *mc = ANSI_MONSTER;
+                    if (mtype == RC_MON_SLIME)  { msym = 'S'; mc = ANSI_MON_SLIME; }
+                    if (mtype == RC_MON_HUNTER) { msym = 'H'; mc = ANSI_MON_HUNTER; }
+                    put_tile(msym, mc);
+                    continue;
+                }
+            }
             {
                 int itype;
                 if (is_item_at(x, y, &itype)) {
@@ -310,10 +329,10 @@ int main(int argc, char **argv) {
 
         int alive = rc_game_monster_count(g);
         if (g_use_color) {
-            printf("\n%s# 牆  . 地板  > 樓梯  @ 你  E 怪物(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)%s\n", ANSI_HUD, alive, g_itm_count, ANSI_RESET);
+            printf("\n%s@ 你  E 殭屍  S 史萊姆  H 獵人(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)%s\n", ANSI_HUD, alive, g_itm_count, ANSI_RESET);
             printf("%s%s%s\n", ANSI_DIM, status, ANSI_RESET);
         } else {
-            printf("\n# 牆  . 地板  > 樓梯  @ 你  E 怪物(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)\n", alive, g_itm_count);
+            printf("\n@ 你  E 殭屍  S 史萊姆  H 獵人(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)\n", alive, g_itm_count);
             puts(status);
         }
 

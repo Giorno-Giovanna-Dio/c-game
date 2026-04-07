@@ -58,10 +58,14 @@ int rc_game_player_max_hp(const void *handle);
 int rc_game_monster_count(const void *handle);
 
 /**
- * 寫入怪物資料（存活的）。每隻寫 3 個 int：x, y, hp。
+ * 寫入怪物資料（存活的）。每隻寫 4 個 int：x, y, hp, type。
  * out 長度至少 cap 個 int。回傳寫入的怪物數。
  */
 int rc_game_monsters(const void *handle, int *out, int cap);
+
+#define RC_MON_ZOMBIE 0
+#define RC_MON_SLIME 1
+#define RC_MON_HUNTER 2
 
 /**
  * rc_game_move 回傳值：

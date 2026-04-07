@@ -32,18 +32,23 @@ RC_MAX_ITEMS = 12
 RC_ITEM_POTION = 0
 RC_ITEM_BLINK = 1
 RC_ITEM_MAP = 2
+RC_MON_ZOMBIE = 0
+RC_MON_SLIME = 1
+RC_MON_HUNTER = 2
 
 HELP_TEXT = """
 【怎麼玩】
-  @ = 你（玩家）　E = 怪物（走進牠就攻擊）
-  ! = 治療藥水（走上去自動拾取，回復 HP）
-  ~ = 閃現卷軸（走上去自動拾取，瞬移到隨機位置）
-  % = 地圖卷軸（走上去自動拾取，揭示整層地形）
-  地板 / 牆 / 樓梯見畫面圖例
-  互動終端機：直接按鍵，不必 Enter — w 上 s 下 a 左 d 右（方向鍵亦可）
-  ? 或 h = 說明　q = 結束
-目標：走到樓梯 > 下樓，征服全部 5 層地城！越深怪越多越強。
-每層有步數限制，耗盡後每步扣 HP！善用道具生存下來！
+  @ = 你（玩家）
+  E = 殭屍（靠近 6 格才醒來追你，普通攻擊）
+  S = 史萊姆（隨機亂走，攻擊超弱但很耐打，殺掉回 2 HP！）
+  H = 獵人（一回合走兩步！攻擊強但 HP 低，快死會逃跑。三層後出現）
+  ! = 治療藥水（走上去拾取，回復 HP）
+  ~ = 閃現卷軸（走上去拾取，瞬移到遠離怪物的安全位置）
+  % = 地圖卷軸（走上去拾取，揭示整層地形）
+  # = 牆　· = 地板　> = 樓梯
+  操作：w/a/s/d 或方向鍵移動，? 說明，q 離開
+目標：走到樓梯 > 下樓，征服全部 5 層地城！
+每層有步數限制，耗盡後每步扣 HP！善用道具生存！
 """.strip()
 
 
@@ -145,14 +150,15 @@ def main() -> None:
     n = w * h
     buf = (ctypes.c_uint8 * n)()
     vis_buf = (ctypes.c_uint8 * n)()
-    mon_buf = (c_int * (RC_MAX_MONSTERS * 3))()
+    mon_buf = (c_int * (RC_MAX_MONSTERS * 4))()
     item_buf = (c_int * (RC_MAX_ITEMS * 3))()
     status = "WASD 移動，? 說明，q 離開"
     R = TermStyle.RESET
 
-    def get_monsters() -> list[tuple[int, int, int]]:
-        cnt = lib.rc_game_monsters(g, mon_buf, RC_MAX_MONSTERS * 3)
-        return [(int(mon_buf[i * 3]), int(mon_buf[i * 3 + 1]), int(mon_buf[i * 3 + 2]))
+    def get_monsters() -> list[tuple[int, int, int, int]]:
+        cnt = lib.rc_game_monsters(g, mon_buf, RC_MAX_MONSTERS * 4)
+        return [(int(mon_buf[i * 4]), int(mon_buf[i * 4 + 1]),
+                 int(mon_buf[i * 4 + 2]), int(mon_buf[i * 4 + 3]))
                 for i in range(cnt)]
 
     def get_items() -> list[tuple[int, int, int]]:
@@ -198,10 +204,10 @@ def main() -> None:
         alive = lib.rc_game_monster_count(g)
         n_items = len(items_list)
         if use_color:
-            print(f"{TermStyle.HUD}# 牆　· 地板　> 樓梯　@ 你　E 怪物({alive})　! 藥水　~ 閃現　% 地圖({n_items}){R}")
+            print(f"{TermStyle.HUD}@ 你  E 殭屍  S 史萊姆  H 獵人({alive})  ! 藥水  ~ 閃現  % 地圖({n_items}){R}")
             print(f"{TermStyle.DIM}{status}{R}")
         else:
-            print(f"# 牆  . 地板  > 樓梯  @ 你  E 怪物({alive})  ! 藥水  ~ 閃現  % 地圖({n_items})")
+            print(f"@ 你  E 殭屍  S 史萊姆  H 獵人({alive})  ! 藥水  ~ 閃現  % 地圖({n_items})")
             print(status)
 
     try:
