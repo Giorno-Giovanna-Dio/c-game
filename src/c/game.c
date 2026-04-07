@@ -24,6 +24,8 @@ typedef struct {
     char msg[128];
     int floor;
     int won;
+    int steps_left;
+    int steps_max;
 } Game;
 
 static int idx(int w, int x, int y) { return y * w + x; }
@@ -94,6 +96,8 @@ static void generate_floor(Game *g) {
     size_t n = (size_t)g->w * (size_t)g->h;
     memset(g->visible, 0, n);
     memset(g->explored, 0, n);
+    g->steps_max = RC_BASE_STEPS + g->floor * 20;
+    g->steps_left = g->steps_max;
     spawn_monsters(g);
     update_fov(g);
 }
@@ -174,6 +178,14 @@ int rc_game_move(void *handle, int dx, int dy) {
     if (g->hp <= 0) return 3;
 
     g->msg[0] = '\0';
+    if (g->steps_left > 0) {
+        g->steps_left--;
+    } else {
+        g->hp -= 2;
+        if (g->hp < 0) g->hp = 0;
+        snprintf(g->msg, sizeof g->msg, "地城崩塌中！-2 HP（剩 %d）", g->hp);
+        if (g->hp <= 0) return 3;
+    }
     int nx = g->px + dx;
     int ny = g->py + dy;
     if (!in_bounds(g, nx, ny)) return 1;
@@ -292,6 +304,21 @@ const char *rc_game_last_message(const void *handle) {
     const Game *g = (const Game *)handle;
     if (!g) return "";
     return g->msg;
+}
+
+int rc_game_steps_left(const void *handle) {
+    const Game *g = (const Game *)handle;
+    return g ? g->steps_left : 0;
+}
+
+int rc_game_steps_max(const void *handle) {
+    const Game *g = (const Game *)handle;
+    return g ? g->steps_max : 0;
+}
+
+int rc_game_timeout(const void *handle) {
+    const Game *g = (const Game *)handle;
+    return (g && g->steps_left <= 0) ? 1 : 0;
 }
 
 int rc_game_visibility(const void *handle, uint8_t *out, size_t cap) {

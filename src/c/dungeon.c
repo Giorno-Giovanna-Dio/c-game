@@ -113,9 +113,26 @@ void rc_dungeon_generate(rc_rng_t *rng, int w, int h, uint8_t *tiles, int *out_s
         connect_rooms_rng(rng, tiles, w, h, ax, ay, bx, by);
     }
 
-    int pidx = idx(w, rooms[0].x + rooms[0].w / 2, rooms[0].y + rooms[0].h / 2);
-    int sidx = idx(w, rooms[nrooms - 1].x + rooms[nrooms - 1].w / 2,
-                   rooms[nrooms - 1].y + rooms[nrooms - 1].h / 2);
+    int pcx = rooms[0].x + rooms[0].w / 2;
+    int pcy = rooms[0].y + rooms[0].h / 2;
+    int pidx = idx(w, pcx, pcy);
+
+    int best = -1, best_dist = -1;
+    for (int i = 1; i < nrooms; i++) {
+        int cx = rooms[i].x + rooms[i].w / 2;
+        int cy = rooms[i].y + rooms[i].h / 2;
+        int dx = cx - pcx;
+        int dy = cy - pcy;
+        int d2 = dx * dx + dy * dy;
+        if (d2 > best_dist) {
+            best_dist = d2;
+            best = i;
+        }
+    }
+    if (best < 0) best = nrooms - 1;
+
+    int sidx = idx(w, rooms[best].x + rooms[best].w / 2,
+                   rooms[best].y + rooms[best].h / 2);
 
     tiles[sidx] = DUN_TILE_STAIRS;
     *out_player_idx = pidx;

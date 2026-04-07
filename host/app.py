@@ -78,6 +78,12 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_last_message.restype = ctypes.c_char_p
     lib.rc_game_visibility.argtypes = [c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
     lib.rc_game_visibility.restype = c_int
+    lib.rc_game_steps_left.argtypes = [c_void_p]
+    lib.rc_game_steps_left.restype = c_int
+    lib.rc_game_steps_max.argtypes = [c_void_p]
+    lib.rc_game_steps_max.restype = c_int
+    lib.rc_game_timeout.argtypes = [c_void_p]
+    lib.rc_game_timeout.restype = c_int
     return lib
 
 
@@ -150,10 +156,14 @@ def main() -> None:
         hp = lib.rc_game_player_hp(g)
         max_hp = lib.rc_game_player_max_hp(g)
         fl = lib.rc_game_floor(g)
+        steps = lib.rc_game_steps_left(g)
+        steps_max = lib.rc_game_steps_max(g)
+        step_warn = steps <= steps_max // 4
         if use_color:
-            print(f"{TermStyle.TITLE}c-game{R}  seed={args.seed}  B{fl}F  {format_hp_bar(hp, max_hp, color=True)}")
+            step_color = TermStyle.WARN if step_warn else TermStyle.DIM
+            print(f"{TermStyle.TITLE}c-game{R}  B{fl}F  {format_hp_bar(hp, max_hp, color=True)}  {step_color}步數 {steps}/{steps_max}{R}")
         else:
-            print(f"c-game  seed={args.seed}  B{fl}F  {format_hp_bar(hp, max_hp, color=False)}")
+            print(f"c-game  B{fl}F  {format_hp_bar(hp, max_hp, color=False)}  步數 {steps}/{steps_max}")
         print()
         if lib.rc_game_tiles(g, buf, n) < 0:
             print("rc_game_tiles 失敗", file=sys.stderr)

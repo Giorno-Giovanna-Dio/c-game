@@ -242,13 +242,20 @@ int main(int argc, char **argv) {
             clear_screen();
         }
         int fl = rc_game_floor(g);
+        int steps = rc_game_steps_left(g);
+        int steps_max = rc_game_steps_max(g);
         if (g_use_color) {
-            printf("%srogue_cli%s  seed=%u  B%dF  ", ANSI_TITLE, ANSI_RESET, (unsigned)seed, fl);
+            printf("%srogue_cli%s  B%dF  ", ANSI_TITLE, ANSI_RESET, fl);
         } else {
-            printf("rogue_cli  seed=%u  B%dF  ", (unsigned)seed, fl);
+            printf("rogue_cli  B%dF  ", fl);
         }
         print_hp_bar(rc_game_player_hp(g), rc_game_player_max_hp(g));
-        puts("\n");
+        int step_warn = (steps <= steps_max / 4);
+        if (g_use_color) {
+            printf("  %s步數 %d/%d%s\n\n", step_warn ? ANSI_WARN : ANSI_DIM, steps, steps_max, ANSI_RESET);
+        } else {
+            printf("  步數 %d/%d\n\n", steps, steps_max);
+        }
 
         refresh_monsters(g);
         rc_game_visibility(g, g_vis, sizeof g_vis);

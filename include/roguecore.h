@@ -81,6 +81,13 @@ const char *rc_game_last_message(const void *handle);
  */
 int rc_game_visibility(const void *handle, uint8_t *out, size_t cap);
 
+/** 剩餘步數 / 該層最大步數 */
+int rc_game_steps_left(const void *handle);
+int rc_game_steps_max(const void *handle);
+
+/** 步數是否耗盡 */
+int rc_game_timeout(const void *handle);
+
 #define RC_VIS_UNSEEN 0u
 #define RC_VIS_EXPLORED 1u
 #define RC_VIS_VISIBLE 2u
@@ -90,6 +97,7 @@ int rc_game_visibility(const void *handle, uint8_t *out, size_t cap);
 #define RC_MAX_MONSTERS 16
 #define RC_PLAYER_START_HP 25
 #define RC_MAX_FLOORS 5
+#define RC_BASE_STEPS 120
 
 #ifdef __cplusplus
 }
