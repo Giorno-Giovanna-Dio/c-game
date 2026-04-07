@@ -31,9 +31,12 @@ static const char *ANSI_HP_GOOD = "\033[1;92m";
 static const char *ANSI_HP_MED = "\033[1;33m";
 static const char *ANSI_HP_LOW = "\033[1;91m";
 static const char *ANSI_WARN = "\033[1;91m";
+static const char *ANSI_FOG_EXPLORED = "\033[38;5;239m";
+static const char *ANSI_FOG_UNSEEN = "\033[38;5;233m";
 
 static int g_mon_xs[RC_MAX_MONSTERS], g_mon_ys[RC_MAX_MONSTERS];
 static int g_mon_count = 0;
+static uint8_t g_vis[RC_GAME_WIDTH * RC_GAME_HEIGHT];
 
 static void usage(const char *argv0) {
     fprintf(stderr, "用法: %s [--seed N] [--line-mode] [--no-color]\n", argv0);
@@ -154,9 +157,26 @@ static void put_tile(char ch, const char *ansi) {
 static void print_map(const uint8_t *tiles, int w, int h, int px, int py) {
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
+            int i = y * w + x;
+            uint8_t v = g_vis[i];
+            uint8_t t = tiles[i];
+            if (v == RC_VIS_UNSEEN) {
+                if (g_use_color) { fputs(ANSI_FOG_UNSEEN, stdout); putchar(' '); fputs(ANSI_RESET, stdout); }
+                else putchar(' ');
+                continue;
+            }
+            if (v == RC_VIS_EXPLORED) {
+                const char *c = g_use_color ? ANSI_FOG_EXPLORED : "";
+                if (g_use_color) fputs(c, stdout);
+                if (t == RC_TILE_WALL) putchar('#');
+                else if (t == RC_TILE_FLOOR) putchar('.');
+                else if (t == RC_TILE_STAIRS) putchar('>');
+                else putchar('?');
+                if (g_use_color) fputs(ANSI_RESET, stdout);
+                continue;
+            }
             if (x == px && y == py) { put_tile('@', ANSI_PLAYER); continue; }
             if (is_monster_at(x, y)) { put_tile('E', ANSI_MONSTER); continue; }
-            uint8_t t = tiles[y * w + x];
             if (t == RC_TILE_WALL) put_tile('#', ANSI_WALL);
             else if (t == RC_TILE_FLOOR) put_tile('.', ANSI_FLOOR);
             else if (t == RC_TILE_STAIRS) put_tile('>', ANSI_STAIRS);
@@ -231,6 +251,7 @@ int main(int argc, char **argv) {
         puts("\n");
 
         refresh_monsters(g);
+        rc_game_visibility(g, g_vis, sizeof g_vis);
         if (rc_game_tiles(g, tiles, bufn) < 0) {
             fprintf(stderr, "rc_game_tiles 失敗\n");
             break;

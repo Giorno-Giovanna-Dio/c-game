@@ -75,6 +75,16 @@ int rc_game_monsters(const void *handle, int *out, int cap);
 /** 最近一次戰鬥的傷害訊息（長度上限 128）。無戰鬥時回傳空字串。 */
 const char *rc_game_last_message(const void *handle);
 
+/**
+ * 寫入視野資料（row-major，長度 w*h）。
+ * 值：0 = 未探索、1 = 已探索但不在視野、2 = 目前可見。
+ */
+int rc_game_visibility(const void *handle, uint8_t *out, size_t cap);
+
+#define RC_VIS_UNSEEN 0u
+#define RC_VIS_EXPLORED 1u
+#define RC_VIS_VISIBLE 2u
+
 #define RC_GAME_WIDTH 42
 #define RC_GAME_HEIGHT 22
 #define RC_MAX_MONSTERS 16

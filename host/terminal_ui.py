@@ -23,6 +23,8 @@ class TermStyle:
     HP_GOOD = "\033[1;92m"
     HP_MED = "\033[1;33m"
     HP_LOW = "\033[1;91m"
+    FOG_EXPLORED = "\033[38;5;239m"
+    FOG_UNSEEN = "\033[38;5;233m"
 
 
 def clear_screen() -> None:
@@ -139,6 +141,11 @@ def format_hp_bar(hp: int, max_hp: int, *, color: bool, width: int = 20) -> str:
     return f"{label} [{bar}]"
 
 
+VIS_UNSEEN = 0
+VIS_EXPLORED = 1
+VIS_VISIBLE = 2
+
+
 def format_map_lines(
     buf: list[int],
     w: int,
@@ -148,6 +155,7 @@ def format_map_lines(
     *,
     color: bool,
     monsters: list[tuple[int, int, int]] | None = None,
+    visibility: list[int] | None = None,
 ) -> list[str]:
     mon_set: dict[tuple[int, int], int] = {}
     if monsters:
@@ -159,9 +167,39 @@ def format_map_lines(
     for y in range(h):
         parts: list[str] = []
         for x in range(w):
+            i = y * w + x
+            vis = visibility[i] if visibility else VIS_VISIBLE
             is_p = x == px and y == py
-            is_m = (x, y) in mon_set
-            t = buf[y * w + x]
+            t = buf[i]
+
+            if vis == VIS_UNSEEN:
+                if color:
+                    parts.append(f"{TermStyle.FOG_UNSEEN} {R}")
+                else:
+                    parts.append(" ")
+                continue
+
+            if vis == VIS_EXPLORED:
+                if color:
+                    if t == 0:
+                        parts.append(f"{TermStyle.FOG_EXPLORED}#{R}")
+                    elif t == 1:
+                        parts.append(f"{TermStyle.FOG_EXPLORED}·{R}")
+                    elif t == 2:
+                        parts.append(f"{TermStyle.FOG_EXPLORED}>{R}")
+                    else:
+                        parts.append(f"{TermStyle.FOG_EXPLORED}?{R}")
+                else:
+                    if t == 0:
+                        parts.append("#")
+                    elif t == 1:
+                        parts.append(".")
+                    elif t == 2:
+                        parts.append(">")
+                    else:
+                        parts.append("?")
+                continue
+
             if is_p:
                 sym = "@"
                 if color:
@@ -169,6 +207,7 @@ def format_map_lines(
                 else:
                     parts.append(sym)
                 continue
+            is_m = (x, y) in mon_set
             if is_m:
                 sym = "E"
                 if color:

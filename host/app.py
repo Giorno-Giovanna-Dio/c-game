@@ -76,6 +76,8 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_monsters.restype = c_int
     lib.rc_game_last_message.argtypes = [c_void_p]
     lib.rc_game_last_message.restype = ctypes.c_char_p
+    lib.rc_game_visibility.argtypes = [c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
+    lib.rc_game_visibility.restype = c_int
     return lib
 
 
@@ -126,6 +128,7 @@ def main() -> None:
     h = lib.rc_game_height(g)
     n = w * h
     buf = (ctypes.c_uint8 * n)()
+    vis_buf = (ctypes.c_uint8 * n)()
     mon_buf = (c_int * (RC_MAX_MONSTERS * 3))()
     status = "WASD 移動，? 說明，q 離開"
     R = TermStyle.RESET
@@ -158,9 +161,11 @@ def main() -> None:
         px = c_int()
         py = c_int()
         lib.rc_game_player(g, ctypes.byref(px), ctypes.byref(py))
+        lib.rc_game_visibility(g, vis_buf, n)
         row_bytes = [int(buf[i]) for i in range(n)]
+        vis_bytes = [int(vis_buf[i]) for i in range(n)]
         monsters = get_monsters()
-        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters):
+        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters, visibility=vis_bytes):
             print(line)
         print()
         alive = lib.rc_game_monster_count(g)

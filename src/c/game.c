@@ -15,6 +15,8 @@ typedef struct {
     rc_rng_t rng;
     int w, h;
     uint8_t *tiles;
+    uint8_t *visible;
+    uint8_t *explored;
     int px, py;
     int hp, max_hp;
     Monster monsters[RC_MAX_MONSTERS];
@@ -30,6 +32,25 @@ static int in_bounds(const Game *g, int x, int y) {
 }
 static uint8_t tile_at(const Game *g, int x, int y) {
     return g->tiles[idx(g->w, x, y)];
+}
+
+#define FOV_RADIUS 6
+
+static void update_fov(Game *g) {
+    int n = g->w * g->h;
+    memset(g->visible, 0, (size_t)n);
+    int r2 = FOV_RADIUS * FOV_RADIUS;
+    for (int y = 0; y < g->h; y++) {
+        for (int x = 0; x < g->w; x++) {
+            int dx = x - g->px;
+            int dy = y - g->py;
+            if (dx * dx + dy * dy <= r2) {
+                int i = idx(g->w, x, y);
+                g->visible[i] = 1;
+                g->explored[i] = 1;
+            }
+        }
+    }
 }
 
 static int monster_at(const Game *g, int x, int y) {
@@ -70,7 +91,11 @@ static void generate_floor(Game *g) {
     g->px = pi % g->w;
     g->py = pi / g->w;
     g->msg[0] = '\0';
+    size_t n = (size_t)g->w * (size_t)g->h;
+    memset(g->visible, 0, n);
+    memset(g->explored, 0, n);
     spawn_monsters(g);
+    update_fov(g);
 }
 
 static void monster_ai(Game *g) {
@@ -106,14 +131,20 @@ void *rc_game_create(uint32_t seed) {
     if (!g) return NULL;
     g->w = RC_GAME_WIDTH;
     g->h = RC_GAME_HEIGHT;
-    g->tiles = (uint8_t *)malloc((size_t)g->w * (size_t)g->h);
-    if (!g->tiles) { free(g); return NULL; }
+    size_t n = (size_t)g->w * (size_t)g->h;
+    g->tiles = (uint8_t *)malloc(n);
+    g->visible = (uint8_t *)calloc(n, 1);
+    g->explored = (uint8_t *)calloc(n, 1);
+    if (!g->tiles || !g->visible || !g->explored) {
+        free(g->tiles); free(g->visible); free(g->explored); free(g); return NULL;
+    }
     rc_rng_seed(&g->rng, seed);
     g->max_hp = RC_PLAYER_START_HP;
     g->hp = g->max_hp;
     g->floor = 1;
     g->won = 0;
     generate_floor(g);
+    update_fov(g);
     return g;
 }
 
@@ -121,6 +152,8 @@ void rc_game_destroy(void *handle) {
     Game *g = (Game *)handle;
     if (!g) return;
     free(g->tiles);
+    free(g->visible);
+    free(g->explored);
     free(g);
 }
 
@@ -159,12 +192,14 @@ int rc_game_move(void *handle, int dx, int dy) {
             snprintf(g->msg, sizeof g->msg, "你攻擊怪物！--%d（怪物剩 %d HP）", dmg, m->hp);
         }
         monster_ai(g);
+        update_fov(g);
         return (g->hp <= 0) ? 3 : 2;
     }
 
     g->px = nx;
     g->py = ny;
     monster_ai(g);
+    update_fov(g);
     return (g->hp <= 0) ? 3 : 0;
 }
 
@@ -257,4 +292,17 @@ const char *rc_game_last_message(const void *handle) {
     const Game *g = (const Game *)handle;
     if (!g) return "";
     return g->msg;
+}
+
+int rc_game_visibility(const void *handle, uint8_t *out, size_t cap) {
+    const Game *g = (const Game *)handle;
+    if (!g || !out) return -1;
+    size_t n = (size_t)g->w * (size_t)g->h;
+    if (cap < n) return -1;
+    for (size_t i = 0; i < n; i++) {
+        if (g->visible[i]) out[i] = RC_VIS_VISIBLE;
+        else if (g->explored[i]) out[i] = RC_VIS_EXPLORED;
+        else out[i] = RC_VIS_UNSEEN;
+    }
+    return (int)n;
 }
