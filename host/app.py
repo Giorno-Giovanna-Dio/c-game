@@ -28,14 +28,22 @@ RC_TILE_WALL = 0
 RC_TILE_FLOOR = 1
 RC_TILE_STAIRS = 2
 RC_MAX_MONSTERS = 16
+RC_MAX_ITEMS = 12
+RC_ITEM_POTION = 0
+RC_ITEM_BLINK = 1
+RC_ITEM_MAP = 2
 
 HELP_TEXT = """
 【怎麼玩】
   @ = 你（玩家）　E = 怪物（走進牠就攻擊）
+  ! = 治療藥水（走上去自動拾取，回復 HP）
+  ~ = 閃現卷軸（走上去自動拾取，瞬移到隨機位置）
+  % = 地圖卷軸（走上去自動拾取，揭示整層地形）
   地板 / 牆 / 樓梯見畫面圖例
   互動終端機：直接按鍵，不必 Enter — w 上 s 下 a 左 d 右（方向鍵亦可）
   ? 或 h = 說明　q = 結束
 目標：走到樓梯 > 下樓，征服全部 5 層地城！越深怪越多越強。
+每層有步數限制，耗盡後每步扣 HP！善用道具生存下來！
 """.strip()
 
 
@@ -84,6 +92,8 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_steps_max.restype = c_int
     lib.rc_game_timeout.argtypes = [c_void_p]
     lib.rc_game_timeout.restype = c_int
+    lib.rc_game_items.argtypes = [c_void_p, ctypes.POINTER(c_int), c_int]
+    lib.rc_game_items.restype = c_int
     return lib
 
 
@@ -136,12 +146,18 @@ def main() -> None:
     buf = (ctypes.c_uint8 * n)()
     vis_buf = (ctypes.c_uint8 * n)()
     mon_buf = (c_int * (RC_MAX_MONSTERS * 3))()
+    item_buf = (c_int * (RC_MAX_ITEMS * 3))()
     status = "WASD 移動，? 說明，q 離開"
     R = TermStyle.RESET
 
     def get_monsters() -> list[tuple[int, int, int]]:
         cnt = lib.rc_game_monsters(g, mon_buf, RC_MAX_MONSTERS * 3)
         return [(int(mon_buf[i * 3]), int(mon_buf[i * 3 + 1]), int(mon_buf[i * 3 + 2]))
+                for i in range(cnt)]
+
+    def get_items() -> list[tuple[int, int, int]]:
+        cnt = lib.rc_game_items(g, item_buf, RC_MAX_ITEMS * 3)
+        return [(int(item_buf[i * 3]), int(item_buf[i * 3 + 1]), int(item_buf[i * 3 + 2]))
                 for i in range(cnt)]
 
     def get_combat_msg() -> str:
@@ -175,15 +191,17 @@ def main() -> None:
         row_bytes = [int(buf[i]) for i in range(n)]
         vis_bytes = [int(vis_buf[i]) for i in range(n)]
         monsters = get_monsters()
-        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters, visibility=vis_bytes):
+        items_list = get_items()
+        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters, items=items_list, visibility=vis_bytes):
             print(line)
         print()
         alive = lib.rc_game_monster_count(g)
+        n_items = len(items_list)
         if use_color:
-            print(f"{TermStyle.HUD}# 牆　· 地板　> 樓梯　@ 你　E 怪物（剩 {alive} 隻）{R}")
+            print(f"{TermStyle.HUD}# 牆　· 地板　> 樓梯　@ 你　E 怪物({alive})　! 藥水　~ 閃現　% 地圖({n_items}){R}")
             print(f"{TermStyle.DIM}{status}{R}")
         else:
-            print(f"# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 {alive} 隻）")
+            print(f"# 牆  . 地板  > 樓梯  @ 你  E 怪物({alive})  ! 藥水  ~ 閃現  % 地圖({n_items})")
             print(status)
 
     try:

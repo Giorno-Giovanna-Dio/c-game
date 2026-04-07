@@ -33,9 +33,14 @@ static const char *ANSI_HP_LOW = "\033[1;91m";
 static const char *ANSI_WARN = "\033[1;91m";
 static const char *ANSI_FOG_EXPLORED = "\033[38;5;239m";
 static const char *ANSI_FOG_UNSEEN = "\033[38;5;233m";
+static const char *ANSI_ITEM_POTION = "\033[1;95m";
+static const char *ANSI_ITEM_BLINK = "\033[1;96m";
+static const char *ANSI_ITEM_MAP = "\033[1;33m";
 
 static int g_mon_xs[RC_MAX_MONSTERS], g_mon_ys[RC_MAX_MONSTERS];
 static int g_mon_count = 0;
+static int g_itm_xs[RC_MAX_ITEMS], g_itm_ys[RC_MAX_ITEMS], g_itm_types[RC_MAX_ITEMS];
+static int g_itm_count = 0;
 static uint8_t g_vis[RC_GAME_WIDTH * RC_GAME_HEIGHT];
 
 static void usage(const char *argv0) {
@@ -47,9 +52,12 @@ static void usage(const char *argv0) {
 static void print_help(void) {
     puts("【怎麼玩】");
     puts("  @ = 玩家  E = 怪物（走進牠就攻擊）");
+    puts("  ! = 治療藥水（走上去拾取，回復 HP）");
+    puts("  ~ = 閃現卷軸（走上去拾取，隨機瞬移）");
+    puts("  % = 地圖卷軸（走上去拾取，揭示全層地形）");
     puts("  # = 牆  . = 地板  > = 樓梯");
     puts("  互動模式：直接按鍵不必 Enter；--line-mode 則每行一個字母再 Enter");
-    puts("目標：避開或擊殺怪物，在 HP 歸零前走到樓梯。");
+    puts("目標：避開或擊殺怪物，在步數耗盡前走到樓梯。善用道具生存！");
     puts("");
 }
 
@@ -66,6 +74,26 @@ static void refresh_monsters(void *g) {
     for (int i = 0; i < g_mon_count; i++) {
         g_mon_xs[i] = buf[i * 3];
         g_mon_ys[i] = buf[i * 3 + 1];
+    }
+}
+
+static int is_item_at(int x, int y, int *out_type) {
+    for (int i = 0; i < g_itm_count; i++) {
+        if (g_itm_xs[i] == x && g_itm_ys[i] == y) {
+            if (out_type) *out_type = g_itm_types[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void refresh_items(void *g) {
+    int buf[RC_MAX_ITEMS * 3];
+    g_itm_count = rc_game_items(g, buf, RC_MAX_ITEMS * 3);
+    for (int i = 0; i < g_itm_count; i++) {
+        g_itm_xs[i] = buf[i * 3];
+        g_itm_ys[i] = buf[i * 3 + 1];
+        g_itm_types[i] = buf[i * 3 + 2];
     }
 }
 
@@ -177,6 +205,18 @@ static void print_map(const uint8_t *tiles, int w, int h, int px, int py) {
             }
             if (x == px && y == py) { put_tile('@', ANSI_PLAYER); continue; }
             if (is_monster_at(x, y)) { put_tile('E', ANSI_MONSTER); continue; }
+            {
+                int itype;
+                if (is_item_at(x, y, &itype)) {
+                    char sym = '?';
+                    const char *ic = ANSI_FLOOR;
+                    if (itype == RC_ITEM_POTION) { sym = '!'; ic = ANSI_ITEM_POTION; }
+                    else if (itype == RC_ITEM_BLINK) { sym = '~'; ic = ANSI_ITEM_BLINK; }
+                    else if (itype == RC_ITEM_MAP) { sym = '%'; ic = ANSI_ITEM_MAP; }
+                    put_tile(sym, ic);
+                    continue;
+                }
+            }
             if (t == RC_TILE_WALL) put_tile('#', ANSI_WALL);
             else if (t == RC_TILE_FLOOR) put_tile('.', ANSI_FLOOR);
             else if (t == RC_TILE_STAIRS) put_tile('>', ANSI_STAIRS);
@@ -258,6 +298,7 @@ int main(int argc, char **argv) {
         }
 
         refresh_monsters(g);
+        refresh_items(g);
         rc_game_visibility(g, g_vis, sizeof g_vis);
         if (rc_game_tiles(g, tiles, bufn) < 0) {
             fprintf(stderr, "rc_game_tiles 失敗\n");
@@ -269,10 +310,10 @@ int main(int argc, char **argv) {
 
         int alive = rc_game_monster_count(g);
         if (g_use_color) {
-            printf("\n%s# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 %d 隻）%s\n", ANSI_HUD, alive, ANSI_RESET);
+            printf("\n%s# 牆  . 地板  > 樓梯  @ 你  E 怪物(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)%s\n", ANSI_HUD, alive, g_itm_count, ANSI_RESET);
             printf("%s%s%s\n", ANSI_DIM, status, ANSI_RESET);
         } else {
-            printf("\n# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 %d 隻）\n", alive);
+            printf("\n# 牆  . 地板  > 樓梯  @ 你  E 怪物(%d)  ! 藥水  ~ 閃現  %% 地圖(%d)\n", alive, g_itm_count);
             puts(status);
         }
 

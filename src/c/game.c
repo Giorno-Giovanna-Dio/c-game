@@ -12,6 +12,12 @@ typedef struct {
 } Monster;
 
 typedef struct {
+    int x, y;
+    int type;
+    int picked;
+} Item;
+
+typedef struct {
     rc_rng_t rng;
     int w, h;
     uint8_t *tiles;
@@ -21,6 +27,8 @@ typedef struct {
     int hp, max_hp;
     Monster monsters[RC_MAX_MONSTERS];
     int nmonsters;
+    Item items[RC_MAX_ITEMS];
+    int nitems;
     char msg[128];
     int floor;
     int won;
@@ -87,6 +95,71 @@ static void spawn_monsters(Game *g) {
     }
 }
 
+static int item_at(const Game *g, int x, int y) {
+    for (int i = 0; i < g->nitems; i++) {
+        if (!g->items[i].picked && g->items[i].x == x && g->items[i].y == y)
+            return i;
+    }
+    return -1;
+}
+
+static void spawn_items(Game *g) {
+    int count = rc_rng_range(&g->rng, 2, 3 + g->floor / 2);
+    if (count > RC_MAX_ITEMS) count = RC_MAX_ITEMS;
+    g->nitems = 0;
+    for (int t = 0; t < 200 && g->nitems < count; t++) {
+        int x = rc_rng_range(&g->rng, 1, g->w - 2);
+        int y = rc_rng_range(&g->rng, 1, g->h - 2);
+        if (tile_at(g, x, y) != RC_TILE_FLOOR) continue;
+        if (x == g->px && y == g->py) continue;
+        if (monster_at(g, x, y) >= 0) continue;
+        if (item_at(g, x, y) >= 0) continue;
+        Item *it = &g->items[g->nitems++];
+        it->x = x;
+        it->y = y;
+        int roll = rc_rng_range(&g->rng, 0, 9);
+        if (roll < 5) it->type = RC_ITEM_POTION;
+        else if (roll < 8) it->type = RC_ITEM_BLINK;
+        else it->type = RC_ITEM_MAP;
+        it->picked = 0;
+    }
+}
+
+static void pickup_item(Game *g) {
+    int ii = item_at(g, g->px, g->py);
+    if (ii < 0) return;
+    Item *it = &g->items[ii];
+    it->picked = 1;
+    switch (it->type) {
+    case RC_ITEM_POTION: {
+        int heal = rc_rng_range(&g->rng, 5, 8);
+        g->hp += heal;
+        if (g->hp > g->max_hp) g->hp = g->max_hp;
+        snprintf(g->msg, sizeof g->msg, "拾取治療藥水 ! 回復 %d HP（現 %d）", heal, g->hp);
+        break;
+    }
+    case RC_ITEM_BLINK: {
+        int attempts = 0;
+        while (attempts < 100) {
+            int bx = rc_rng_range(&g->rng, 1, g->w - 2);
+            int by = rc_rng_range(&g->rng, 1, g->h - 2);
+            if (tile_at(g, bx, by) == RC_TILE_FLOOR && monster_at(g, bx, by) < 0) {
+                g->px = bx;
+                g->py = by;
+                snprintf(g->msg, sizeof g->msg, "拾取閃現卷軸 ~ 瞬移到 (%d,%d)！", bx, by);
+                break;
+            }
+            attempts++;
+        }
+        break;
+    }
+    case RC_ITEM_MAP:
+        for (int i = 0; i < g->w * g->h; i++) g->explored[i] = 1;
+        snprintf(g->msg, sizeof g->msg, "拾取地圖卷軸 %% 揭示整層地形！");
+        break;
+    }
+}
+
 static void generate_floor(Game *g) {
     int si = 0, pi = 0;
     rc_dungeon_generate(&g->rng, g->w, g->h, g->tiles, &si, &pi);
@@ -99,6 +172,7 @@ static void generate_floor(Game *g) {
     g->steps_max = RC_BASE_STEPS + g->floor * 20;
     g->steps_left = g->steps_max;
     spawn_monsters(g);
+    spawn_items(g);
     update_fov(g);
 }
 
@@ -210,6 +284,7 @@ int rc_game_move(void *handle, int dx, int dy) {
 
     g->px = nx;
     g->py = ny;
+    pickup_item(g);
     monster_ai(g);
     update_fov(g);
     return (g->hp <= 0) ? 3 : 0;
@@ -319,6 +394,21 @@ int rc_game_steps_max(const void *handle) {
 int rc_game_timeout(const void *handle) {
     const Game *g = (const Game *)handle;
     return (g && g->steps_left <= 0) ? 1 : 0;
+}
+
+int rc_game_items(const void *handle, int *out, int cap) {
+    const Game *g = (const Game *)handle;
+    if (!g || !out) return 0;
+    int wrote = 0;
+    for (int i = 0; i < g->nitems; i++) {
+        if (g->items[i].picked) continue;
+        if ((wrote + 1) * 3 > cap) break;
+        out[wrote * 3 + 0] = g->items[i].x;
+        out[wrote * 3 + 1] = g->items[i].y;
+        out[wrote * 3 + 2] = g->items[i].type;
+        wrote++;
+    }
+    return wrote;
 }
 
 int rc_game_visibility(const void *handle, uint8_t *out, size_t cap) {

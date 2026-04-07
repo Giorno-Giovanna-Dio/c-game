@@ -25,6 +25,9 @@ class TermStyle:
     HP_LOW = "\033[1;91m"
     FOG_EXPLORED = "\033[38;5;239m"
     FOG_UNSEEN = "\033[38;5;233m"
+    ITEM_POTION = "\033[1;95m"
+    ITEM_BLINK = "\033[1;96m"
+    ITEM_MAP = "\033[1;33m"
 
 
 def clear_screen() -> None:
@@ -146,6 +149,10 @@ VIS_EXPLORED = 1
 VIS_VISIBLE = 2
 
 
+ITEM_SYMS = {0: "!", 1: "~", 2: "%"}
+ITEM_COLORS = {0: TermStyle.ITEM_POTION, 1: TermStyle.ITEM_BLINK, 2: TermStyle.ITEM_MAP}
+
+
 def format_map_lines(
     buf: list[int],
     w: int,
@@ -155,12 +162,17 @@ def format_map_lines(
     *,
     color: bool,
     monsters: list[tuple[int, int, int]] | None = None,
+    items: list[tuple[int, int, int]] | None = None,
     visibility: list[int] | None = None,
 ) -> list[str]:
     mon_set: dict[tuple[int, int], int] = {}
     if monsters:
         for mx, my, mhp in monsters:
             mon_set[(mx, my)] = mhp
+    item_set: dict[tuple[int, int], int] = {}
+    if items:
+        for ix, iy, itype in items:
+            item_set[(ix, iy)] = itype
 
     lines: list[str] = []
     R = TermStyle.RESET
@@ -212,6 +224,15 @@ def format_map_lines(
                 sym = "E"
                 if color:
                     parts.append(f"{TermStyle.MONSTER}{sym}{R}")
+                else:
+                    parts.append(sym)
+                continue
+            it_type = item_set.get((x, y))
+            if it_type is not None:
+                sym = ITEM_SYMS.get(it_type, "?")
+                if color:
+                    c = ITEM_COLORS.get(it_type, "")
+                    parts.append(f"{c}{sym}{R}")
                 else:
                     parts.append(sym)
                 continue

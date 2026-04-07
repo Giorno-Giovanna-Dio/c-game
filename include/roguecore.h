@@ -95,9 +95,20 @@ int rc_game_timeout(const void *handle);
 #define RC_GAME_WIDTH 42
 #define RC_GAME_HEIGHT 22
 #define RC_MAX_MONSTERS 16
+#define RC_MAX_ITEMS 12
 #define RC_PLAYER_START_HP 25
 #define RC_MAX_FLOORS 5
 #define RC_BASE_STEPS 120
+
+#define RC_ITEM_POTION 0
+#define RC_ITEM_BLINK 1
+#define RC_ITEM_MAP 2
+
+/**
+ * 寫入道具資料（未拾取的）。每個寫 3 個 int：x, y, type。
+ * 回傳寫入的道具數。
+ */
+int rc_game_items(const void *handle, int *out, int cap);
 
 #ifdef __cplusplus
 }
