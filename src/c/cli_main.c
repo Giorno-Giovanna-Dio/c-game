@@ -24,8 +24,16 @@ static const char *ANSI_WALL = "\033[38;5;237m";
 static const char *ANSI_FLOOR = "\033[38;5;245m";
 static const char *ANSI_PLAYER = "\033[1;93m";
 static const char *ANSI_STAIRS = "\033[1;92m";
+static const char *ANSI_MONSTER = "\033[1;91m";
 static const char *ANSI_HUD = "\033[36m";
 static const char *ANSI_DIM = "\033[2m";
+static const char *ANSI_HP_GOOD = "\033[1;92m";
+static const char *ANSI_HP_MED = "\033[1;33m";
+static const char *ANSI_HP_LOW = "\033[1;91m";
+static const char *ANSI_WARN = "\033[1;91m";
+
+static int g_mon_xs[RC_MAX_MONSTERS], g_mon_ys[RC_MAX_MONSTERS];
+static int g_mon_count = 0;
 
 static void usage(const char *argv0) {
     fprintf(stderr, "用法: %s [--seed N] [--line-mode] [--no-color]\n", argv0);
@@ -35,10 +43,42 @@ static void usage(const char *argv0) {
 
 static void print_help(void) {
     puts("【怎麼玩】");
-    puts("  @ = 玩家  # = 牆  . = 地板  > = 樓梯（走到這格就贏）");
+    puts("  @ = 玩家  E = 怪物（走進牠就攻擊）");
+    puts("  # = 牆  . = 地板  > = 樓梯");
     puts("  互動模式：直接按鍵不必 Enter；--line-mode 則每行一個字母再 Enter");
-    puts("目標：把 @ 移到地圖上的 > 。");
+    puts("目標：避開或擊殺怪物，在 HP 歸零前走到樓梯。");
     puts("");
+}
+
+static int is_monster_at(int x, int y) {
+    for (int i = 0; i < g_mon_count; i++) {
+        if (g_mon_xs[i] == x && g_mon_ys[i] == y) return 1;
+    }
+    return 0;
+}
+
+static void refresh_monsters(void *g) {
+    int buf[RC_MAX_MONSTERS * 3];
+    g_mon_count = rc_game_monsters(g, buf, RC_MAX_MONSTERS * 3);
+    for (int i = 0; i < g_mon_count; i++) {
+        g_mon_xs[i] = buf[i * 3];
+        g_mon_ys[i] = buf[i * 3 + 1];
+    }
+}
+
+static void print_hp_bar(int hp, int max_hp) {
+    const char *c = ANSI_HP_GOOD;
+    float ratio = (float)hp / (max_hp > 0 ? max_hp : 1);
+    if (ratio <= 0.3f) c = ANSI_HP_LOW;
+    else if (ratio <= 0.6f) c = ANSI_HP_MED;
+    int filled = (int)(20.0f * hp / (max_hp > 0 ? max_hp : 1));
+    if (filled < 0) filled = 0;
+    if (filled > 20) filled = 20;
+    if (g_use_color) fputs(c, stdout);
+    printf("HP %d/%d [", hp, max_hp);
+    for (int i = 0; i < 20; i++) putchar(i < filled ? '#' : '-');
+    putchar(']');
+    if (g_use_color) fputs(ANSI_RESET, stdout);
 }
 
 #ifdef RC_TTY_UI
@@ -106,47 +146,21 @@ static int read_key_raw(void) {
 }
 #endif
 
+static void put_tile(char ch, const char *ansi) {
+    if (g_use_color) { fputs(ansi, stdout); putchar(ch); fputs(ANSI_RESET, stdout); }
+    else putchar(ch);
+}
+
 static void print_map(const uint8_t *tiles, int w, int h, int px, int py) {
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            if (x == px && y == py) {
-                if (g_use_color) {
-                    fputs(ANSI_PLAYER, stdout);
-                    putchar('@');
-                    fputs(ANSI_RESET, stdout);
-                } else {
-                    putchar('@');
-                }
-                continue;
-            }
+            if (x == px && y == py) { put_tile('@', ANSI_PLAYER); continue; }
+            if (is_monster_at(x, y)) { put_tile('E', ANSI_MONSTER); continue; }
             uint8_t t = tiles[y * w + x];
-            if (t == RC_TILE_WALL) {
-                if (g_use_color) {
-                    fputs(ANSI_WALL, stdout);
-                    putchar('#');
-                    fputs(ANSI_RESET, stdout);
-                } else {
-                    putchar('#');
-                }
-            } else if (t == RC_TILE_FLOOR) {
-                if (g_use_color) {
-                    fputs(ANSI_FLOOR, stdout);
-                    putchar('.');
-                    fputs(ANSI_RESET, stdout);
-                } else {
-                    putchar('.');
-                }
-            } else if (t == RC_TILE_STAIRS) {
-                if (g_use_color) {
-                    fputs(ANSI_STAIRS, stdout);
-                    putchar('>');
-                    fputs(ANSI_RESET, stdout);
-                } else {
-                    putchar('>');
-                }
-            } else {
-                putchar('?');
-            }
+            if (t == RC_TILE_WALL) put_tile('#', ANSI_WALL);
+            else if (t == RC_TILE_FLOOR) put_tile('.', ANSI_FLOOR);
+            else if (t == RC_TILE_STAIRS) put_tile('>', ANSI_STAIRS);
+            else putchar('?');
         }
         putchar('\n');
     }
@@ -208,11 +222,14 @@ int main(int argc, char **argv) {
             clear_screen();
         }
         if (g_use_color) {
-            printf("%srogue_cli%s  C 核心  seed=%u\n\n", ANSI_TITLE, ANSI_RESET, (unsigned)seed);
+            printf("%srogue_cli%s  seed=%u  ", ANSI_TITLE, ANSI_RESET, (unsigned)seed);
         } else {
-            printf("rogue_cli  C 核心  seed=%u\n\n", (unsigned)seed);
+            printf("rogue_cli  seed=%u  ", (unsigned)seed);
         }
+        print_hp_bar(rc_game_player_hp(g), rc_game_player_max_hp(g));
+        puts("\n");
 
+        refresh_monsters(g);
         if (rc_game_tiles(g, tiles, bufn) < 0) {
             fprintf(stderr, "rc_game_tiles 失敗\n");
             break;
@@ -221,14 +238,23 @@ int main(int argc, char **argv) {
         rc_game_player(g, &px, &py);
         print_map(tiles, w, h, px, py);
 
+        int alive = rc_game_monster_count(g);
         if (g_use_color) {
-            printf("\n%s# 牆  . 地板  > 樓梯  @ 你%s\n", ANSI_HUD, ANSI_RESET);
+            printf("\n%s# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 %d 隻）%s\n", ANSI_HUD, alive, ANSI_RESET);
             printf("%s%s%s\n", ANSI_DIM, status, ANSI_RESET);
         } else {
-            puts("\n# 牆  . 地板  > 樓梯  @ 你");
+            printf("\n# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 %d 隻）\n", alive);
             puts(status);
         }
 
+        if (rc_game_dead(g)) {
+            if (g_use_color) {
+                printf("\n%s你被怪物擊殺，遊戲結束！%s\n", ANSI_WARN, ANSI_RESET);
+            } else {
+                puts("\n你被怪物擊殺，遊戲結束！");
+            }
+            break;
+        }
         if (rc_game_done(g)) {
             if (g_use_color) {
                 printf("\n%s你抵達樓梯，勝利！%s\n", ANSI_TITLE, ANSI_RESET);
@@ -310,12 +336,15 @@ int main(int argc, char **argv) {
         }
 
         int mv = rc_game_move(g, dx, dy);
+        const char *cmsg = rc_game_last_message(g);
         if (mv == 1) {
             status = "撞牆";
+        } else if (mv == 2 || mv == 3) {
+            status = (cmsg && cmsg[0]) ? cmsg : "戰鬥！";
         } else if (mv < 0) {
             status = "無效移動";
         } else {
-            status = "WASD / 方向鍵 移動，? 說明，q 離開";
+            status = (cmsg && cmsg[0]) ? cmsg : "WASD / 方向鍵 移動，? 說明，q 離開";
         }
     }
 

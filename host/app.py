@@ -14,6 +14,7 @@ from ctypes import c_int, c_uint32, c_void_p
 from terminal_ui import (
     TermStyle,
     clear_screen,
+    format_hp_bar,
     format_map_lines,
     read_key_interactive,
     read_line_fallback,
@@ -26,14 +27,16 @@ LIB_PATH = os.path.join(ROOT, "libroguecore.so")
 RC_TILE_WALL = 0
 RC_TILE_FLOOR = 1
 RC_TILE_STAIRS = 2
+RC_MAX_MONSTERS = 16
 
 HELP_TEXT = """
 【怎麼玩】
-  @ = 你（玩家）　地板 / 牆 / 樓梯見畫面圖例
+  @ = 你（玩家）　E = 怪物（走進牠就攻擊）
+  地板 / 牆 / 樓梯見畫面圖例
   互動終端機：直接按鍵，不必 Enter — w 上 s 下 a 左 d 右（方向鍵亦可）
   ? 或 h = 說明　q = 結束
-  若改為「每行輸入」模式：請加參數 --line-mode（管道或非 TTY 時會自動啟用）
-目標：把 @ 移到樓梯那一格。
+  若改為「每行輸入」模式：請加參數 --line-mode
+目標：避開或擊殺怪物，在 HP 歸零前走到樓梯。
 """.strip()
 
 
@@ -58,6 +61,18 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_tiles.restype = c_int
     lib.rc_game_done.argtypes = [c_void_p]
     lib.rc_game_done.restype = c_int
+    lib.rc_game_dead.argtypes = [c_void_p]
+    lib.rc_game_dead.restype = c_int
+    lib.rc_game_player_hp.argtypes = [c_void_p]
+    lib.rc_game_player_hp.restype = c_int
+    lib.rc_game_player_max_hp.argtypes = [c_void_p]
+    lib.rc_game_player_max_hp.restype = c_int
+    lib.rc_game_monster_count.argtypes = [c_void_p]
+    lib.rc_game_monster_count.restype = c_int
+    lib.rc_game_monsters.argtypes = [c_void_p, ctypes.POINTER(c_int), c_int]
+    lib.rc_game_monsters.restype = c_int
+    lib.rc_game_last_message.argtypes = [c_void_p]
+    lib.rc_game_last_message.restype = ctypes.c_char_p
     return lib
 
 
@@ -108,16 +123,30 @@ def main() -> None:
     h = lib.rc_game_height(g)
     n = w * h
     buf = (ctypes.c_uint8 * n)()
+    mon_buf = (c_int * (RC_MAX_MONSTERS * 3))()
     status = "WASD 移動，? 說明，q 離開"
     R = TermStyle.RESET
+
+    def get_monsters() -> list[tuple[int, int, int]]:
+        cnt = lib.rc_game_monsters(g, mon_buf, RC_MAX_MONSTERS * 3)
+        return [(int(mon_buf[i * 3]), int(mon_buf[i * 3 + 1]), int(mon_buf[i * 3 + 2]))
+                for i in range(cnt)]
+
+    def get_combat_msg() -> str:
+        raw = lib.rc_game_last_message(g)
+        if raw:
+            return raw.decode("utf-8", errors="replace")
+        return ""
 
     def draw_frame() -> None:
         if not line_mode:
             clear_screen()
+        hp = lib.rc_game_player_hp(g)
+        max_hp = lib.rc_game_player_max_hp(g)
         if use_color:
-            print(f"{TermStyle.TITLE}c-game{R}  Python Host + C 核心  seed={args.seed}")
+            print(f"{TermStyle.TITLE}c-game{R}  seed={args.seed}  {format_hp_bar(hp, max_hp, color=True)}")
         else:
-            print(f"c-game  Python Host + C 核心  seed={args.seed}")
+            print(f"c-game  seed={args.seed}  {format_hp_bar(hp, max_hp, color=False)}")
         print()
         if lib.rc_game_tiles(g, buf, n) < 0:
             print("rc_game_tiles 失敗", file=sys.stderr)
@@ -126,14 +155,16 @@ def main() -> None:
         py = c_int()
         lib.rc_game_player(g, ctypes.byref(px), ctypes.byref(py))
         row_bytes = [int(buf[i]) for i in range(n)]
-        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color):
+        monsters = get_monsters()
+        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters):
             print(line)
         print()
+        alive = lib.rc_game_monster_count(g)
         if use_color:
-            print(f"{TermStyle.HUD}# 牆　· 地板　> 樓梯　@ 你{R}")
+            print(f"{TermStyle.HUD}# 牆　· 地板　> 樓梯　@ 你　E 怪物（剩 {alive} 隻）{R}")
             print(f"{TermStyle.DIM}{status}{R}")
         else:
-            print("# 牆  . 地板  > 樓梯  @ 你")
+            print(f"# 牆  . 地板  > 樓梯  @ 你  E 怪物（剩 {alive} 隻）")
             print(status)
 
     try:
@@ -144,6 +175,12 @@ def main() -> None:
 
         while True:
             draw_frame()
+            if lib.rc_game_dead(g):
+                if use_color:
+                    print(f"\n{TermStyle.WARN}你被怪物擊殺，遊戲結束！{R}\n")
+                else:
+                    print("\n你被怪物擊殺，遊戲結束！\n")
+                break
             if lib.rc_game_done(g):
                 if use_color:
                     print(f"\n{TermStyle.TITLE}你抵達樓梯，勝利！{R}\n")
@@ -201,12 +238,20 @@ def main() -> None:
                 continue
 
             mv = lib.rc_game_move(g, dx, dy)
+            cmsg = get_combat_msg()
             if mv == 1:
                 status = "撞牆"
+            elif mv == 2:
+                status = cmsg if cmsg else "攻擊！"
+            elif mv == 3:
+                status = cmsg if cmsg else "你死了！"
             elif mv < 0:
                 status = "無效移動"
             else:
-                status = "WASD 移動，? 說明，q 離開"
+                if cmsg:
+                    status = cmsg
+                else:
+                    status = "WASD 移動，? 說明，q 離開"
     finally:
         term.leave()
         lib.rc_game_destroy(g)

@@ -37,8 +37,38 @@ int rc_game_tiles(const void *handle, uint8_t *out, size_t cap);
 /** 玩家是否站在樓梯上 */
 int rc_game_done(const void *handle);
 
+/** 玩家是否死亡（HP <= 0） */
+int rc_game_dead(const void *handle);
+
+/** 玩家血量 */
+int rc_game_player_hp(const void *handle);
+int rc_game_player_max_hp(const void *handle);
+
+/** 怪物數量（含死亡） */
+int rc_game_monster_count(const void *handle);
+
+/**
+ * 寫入怪物資料（存活的）。每隻寫 3 個 int：x, y, hp。
+ * out 長度至少 cap 個 int。回傳寫入的怪物數。
+ */
+int rc_game_monsters(const void *handle, int *out, int cap);
+
+/**
+ * rc_game_move 回傳值：
+ *   0 = 移動成功
+ *   1 = 撞牆
+ *   2 = 攻擊怪物（已移動扣血）
+ *   3 = 玩家死亡
+ *  -1 = 參數錯誤
+ */
+
+/** 最近一次戰鬥的傷害訊息（長度上限 128）。無戰鬥時回傳空字串。 */
+const char *rc_game_last_message(const void *handle);
+
 #define RC_GAME_WIDTH 42
 #define RC_GAME_HEIGHT 22
+#define RC_MAX_MONSTERS 16
+#define RC_PLAYER_START_HP 20
 
 #ifdef __cplusplus
 }

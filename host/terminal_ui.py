@@ -16,9 +16,13 @@ class TermStyle:
     FLOOR = "\033[38;5;245m"
     PLAYER = "\033[1;93m"
     STAIRS = "\033[1;92m"
+    MONSTER = "\033[1;91m"
     HUD = "\033[36m"
     WARN = "\033[1;91m"
     TITLE = "\033[1;97m"
+    HP_GOOD = "\033[1;92m"
+    HP_MED = "\033[1;33m"
+    HP_LOW = "\033[1;91m"
 
 
 def clear_screen() -> None:
@@ -114,6 +118,27 @@ def wrap_terminal_ui(line_mode: bool, color: bool):
     return ctx
 
 
+def hp_color(hp: int, max_hp: int) -> str:
+    ratio = hp / max(max_hp, 1)
+    if ratio > 0.6:
+        return TermStyle.HP_GOOD
+    if ratio > 0.3:
+        return TermStyle.HP_MED
+    return TermStyle.HP_LOW
+
+
+def format_hp_bar(hp: int, max_hp: int, *, color: bool, width: int = 20) -> str:
+    filled = int(width * hp / max(max_hp, 1))
+    if filled < 0:
+        filled = 0
+    bar = "█" * filled + "░" * (width - filled)
+    label = f"HP {hp}/{max_hp}"
+    if color:
+        c = hp_color(hp, max_hp)
+        return f"{c}{label} [{bar}]{TermStyle.RESET}"
+    return f"{label} [{bar}]"
+
+
 def format_map_lines(
     buf: list[int],
     w: int,
@@ -122,13 +147,20 @@ def format_map_lines(
     py: int,
     *,
     color: bool,
+    monsters: list[tuple[int, int, int]] | None = None,
 ) -> list[str]:
+    mon_set: dict[tuple[int, int], int] = {}
+    if monsters:
+        for mx, my, mhp in monsters:
+            mon_set[(mx, my)] = mhp
+
     lines: list[str] = []
     R = TermStyle.RESET
     for y in range(h):
         parts: list[str] = []
         for x in range(w):
             is_p = x == px and y == py
+            is_m = (x, y) in mon_set
             t = buf[y * w + x]
             if is_p:
                 sym = "@"
@@ -137,7 +169,14 @@ def format_map_lines(
                 else:
                     parts.append(sym)
                 continue
-            if t == 0:  # wall
+            if is_m:
+                sym = "E"
+                if color:
+                    parts.append(f"{TermStyle.MONSTER}{sym}{R}")
+                else:
+                    parts.append(sym)
+                continue
+            if t == 0:
                 sym = "█" if color else "#"
                 if color:
                     parts.append(f"{TermStyle.WALL}{sym}{R}")
