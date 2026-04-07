@@ -1,0 +1,2 @@
+# Host 層僅使用 Python 標準函式庫（ctypes），無需 pip 套件。
+# 若日後加入 pygame 等，請於此列出並同步更新根目錄 README 的 Ubuntu 安裝步驟。

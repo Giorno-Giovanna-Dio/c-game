@@ -1,0 +1,7 @@
+*.o
+libroguecore.so
+rogue_cli
+__pycache__/
+*.pyc
+.DS_Store
+/tmp/
