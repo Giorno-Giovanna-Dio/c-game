@@ -30,7 +30,8 @@ typedef struct {
     int nmonsters;
     Item items[RC_MAX_ITEMS];
     int nitems;
-    char msg[128];
+    int potions;
+    char msg[256];
     int floor;
     int won;
     int steps_left;
@@ -157,13 +158,24 @@ static void pickup_item(Game *g) {
     Item *it = &g->items[ii];
     it->picked = 1;
     switch (it->type) {
-    case RC_ITEM_POTION: {
-        int heal = rc_rng_range(&g->rng, 5, 8);
-        g->hp += heal;
-        if (g->hp > g->max_hp) g->hp = g->max_hp;
-        snprintf(g->msg, sizeof g->msg, "拾取治療藥水 ! 回復 %d HP（現 %d）", heal, g->hp);
+    case RC_ITEM_POTION:
+        if (g->hp >= g->max_hp) {
+            if (g->potions < RC_MAX_POTIONS) {
+                g->potions++;
+                snprintf(g->msg, sizeof g->msg,
+                    "滿血！藥水存入背包（%d/%d）按 e 使用", g->potions, RC_MAX_POTIONS);
+            } else {
+                it->picked = 0;
+                snprintf(g->msg, sizeof g->msg, "背包已滿！無法拾取藥水");
+            }
+        } else {
+            int heal = rc_rng_range(&g->rng, 5, 8);
+            g->hp += heal;
+            if (g->hp > g->max_hp) g->hp = g->max_hp;
+            snprintf(g->msg, sizeof g->msg,
+                "拾取藥水 +%d HP（現 %d）", heal, g->hp);
+        }
         break;
-    }
     case RC_ITEM_BLINK: {
         int best_x = -1, best_y = -1, best_dist = -1;
         for (int att = 0; att < 120; att++) {
@@ -347,22 +359,32 @@ int rc_game_move(void *handle, int dx, int dy) {
         Monster *m = &g->monsters[mi];
         int dmg = rc_rng_range(&g->rng, 2, 4);
         m->hp -= dmg;
+        char atk_part[128];
         if (m->hp <= 0) {
             m->alive = 0;
             if (m->type == RC_MON_SLIME) {
                 int heal = 2;
                 g->hp += heal;
                 if (g->hp > g->max_hp) g->hp = g->max_hp;
-                snprintf(g->msg, sizeof g->msg,
-                    "擊殺史萊姆！（傷害 %d）+%d HP", dmg, heal);
+                snprintf(atk_part, sizeof atk_part,
+                    "擊殺史萊姆！(-%d) +%d HP", dmg, heal);
             } else {
-                snprintf(g->msg, sizeof g->msg,
-                    "你擊殺了%s！（傷害 %d）", mon_name(m->type), dmg);
+                snprintf(atk_part, sizeof atk_part,
+                    "擊殺%s！(-%d)", mon_name(m->type), dmg);
             }
         } else {
-            snprintf(g->msg, sizeof g->msg, "你攻擊%s！--%d（剩 %d HP）", mon_name(m->type), dmg, m->hp);
+            snprintf(atk_part, sizeof atk_part,
+                "攻擊%s -%d（怪剩 %d）", mon_name(m->type), dmg, m->hp);
         }
+        int hp_before = g->hp;
+        g->msg[0] = '\0';
         monster_ai(g);
+        if (g->msg[0] && g->hp < hp_before) {
+            snprintf(g->msg, sizeof g->msg, "%s｜受到反擊 -%d HP（剩 %d）",
+                     atk_part, hp_before - g->hp, g->hp);
+        } else {
+            snprintf(g->msg, sizeof g->msg, "%s", atk_part);
+        }
         update_fov(g);
         return (g->hp <= 0) ? 3 : 2;
     }
@@ -508,4 +530,23 @@ int rc_game_visibility(const void *handle, uint8_t *out, size_t cap) {
         else out[i] = RC_VIS_UNSEEN;
     }
     return (int)n;
+}
+
+int rc_game_potions(const void *handle) {
+    const Game *g = (const Game *)handle;
+    return g ? g->potions : 0;
+}
+
+int rc_game_use_potion(void *handle) {
+    Game *g = (Game *)handle;
+    if (!g) return 0;
+    if (g->potions <= 0) return 0;
+    if (g->hp >= g->max_hp) return -1;
+    g->potions--;
+    int heal = rc_rng_range(&g->rng, 5, 8);
+    g->hp += heal;
+    if (g->hp > g->max_hp) g->hp = g->max_hp;
+    snprintf(g->msg, sizeof g->msg,
+        "使用藥水 +%d HP（現 %d）剩 %d 瓶", heal, g->hp, g->potions);
+    return 1;
 }

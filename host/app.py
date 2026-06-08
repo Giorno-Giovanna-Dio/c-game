@@ -14,8 +14,11 @@ from ctypes import c_int, c_uint32, c_void_p
 from terminal_ui import (
     TermStyle,
     clear_screen,
+    combine_map_and_panel,
     format_hp_bar,
     format_map_lines,
+    format_entity_panel_lines,
+    pick_focus_entity,
     read_key_interactive,
     read_line_fallback,
     wrap_terminal_ui,
@@ -46,7 +49,7 @@ HELP_TEXT = """
   ~ = 閃現卷軸（走上去拾取，瞬移到遠離怪物的安全位置）
   % = 地圖卷軸（走上去拾取，揭示整層地形）
   # = 牆　· = 地板　> = 樓梯
-  操作：w/a/s/d 或方向鍵移動，? 說明，q 離開
+  操作：w/a/s/d 或方向鍵移動，e = 使用背包藥水，? 說明，q 離開
 目標：走到樓梯 > 下樓，征服全部 5 層地城！
 每層有步數限制，耗盡後每步扣 HP！善用道具生存！
 """.strip()
@@ -99,6 +102,10 @@ def load_lib() -> ctypes.CDLL:
     lib.rc_game_timeout.restype = c_int
     lib.rc_game_items.argtypes = [c_void_p, ctypes.POINTER(c_int), c_int]
     lib.rc_game_items.restype = c_int
+    lib.rc_game_potions.argtypes = [c_void_p]
+    lib.rc_game_potions.restype = c_int
+    lib.rc_game_use_potion.argtypes = [c_void_p]
+    lib.rc_game_use_potion.restype = c_int
     return lib
 
 
@@ -154,6 +161,9 @@ def main() -> None:
     item_buf = (c_int * (RC_MAX_ITEMS * 3))()
     status = "WASD 移動，? 說明，q 離開"
     R = TermStyle.RESET
+    recent_mon: tuple[int, int, int, int] | None = None
+    recent_item: tuple[int, int, int] | None = None
+    anim_frame = 0
 
     def get_monsters() -> list[tuple[int, int, int, int]]:
         cnt = lib.rc_game_monsters(g, mon_buf, RC_MAX_MONSTERS * 4)
@@ -173,19 +183,24 @@ def main() -> None:
         return ""
 
     def draw_frame() -> None:
+        nonlocal anim_frame
         if not line_mode:
             clear_screen()
+        anim_frame += 1
         hp = lib.rc_game_player_hp(g)
         max_hp = lib.rc_game_player_max_hp(g)
         fl = lib.rc_game_floor(g)
         steps = lib.rc_game_steps_left(g)
         steps_max = lib.rc_game_steps_max(g)
         step_warn = steps <= steps_max // 4
+        pots = lib.rc_game_potions(g)
         if use_color:
             step_color = TermStyle.WARN if step_warn else TermStyle.DIM
-            print(f"{TermStyle.TITLE}c-game{R}  B{fl}F  {format_hp_bar(hp, max_hp, color=True)}  {step_color}步數 {steps}/{steps_max}{R}")
+            pot_str = f"  {TermStyle.ITEM_POTION}藥水 x{pots}{R}" if pots > 0 else ""
+            print(f"{TermStyle.TITLE}c-game{R}  B{fl}F  {format_hp_bar(hp, max_hp, color=True)}  {step_color}步數 {steps}/{steps_max}{R}{pot_str}")
         else:
-            print(f"c-game  B{fl}F  {format_hp_bar(hp, max_hp, color=False)}  步數 {steps}/{steps_max}")
+            pot_str = f"  藥水 x{pots}" if pots > 0 else ""
+            print(f"c-game  B{fl}F  {format_hp_bar(hp, max_hp, color=False)}  步數 {steps}/{steps_max}{pot_str}")
         print()
         if lib.rc_game_tiles(g, buf, n) < 0:
             print("rc_game_tiles 失敗", file=sys.stderr)
@@ -198,7 +213,20 @@ def main() -> None:
         vis_bytes = [int(vis_buf[i]) for i in range(n)]
         monsters = get_monsters()
         items_list = get_items()
-        for line in format_map_lines(row_bytes, w, h, px.value, py.value, color=use_color, monsters=monsters, items=items_list, visibility=vis_bytes):
+        map_lines = format_map_lines(
+            row_bytes, w, h, px.value, py.value,
+            color=use_color, monsters=monsters, items=items_list, visibility=vis_bytes,
+        )
+        focus = pick_focus_entity(
+            monsters, items_list, px.value, py.value,
+            w=w, visibility=vis_bytes,
+            recent_mon=recent_mon, recent_item=recent_item,
+        )
+        panel_lines = format_entity_panel_lines(
+            focus, color=use_color, frame=anim_frame,
+            px=px.value, py=py.value, panel_height=h,
+        )
+        for line in combine_map_and_panel(map_lines, panel_lines):
             print(line)
         print()
         alive = lib.rc_game_monster_count(g)
@@ -279,6 +307,17 @@ def main() -> None:
                 status = "說明已關閉"
                 continue
 
+            if c == "e":
+                r = lib.rc_game_use_potion(g)
+                cmsg = get_combat_msg()
+                if r == 1:
+                    status = cmsg if cmsg else "使用藥水！"
+                elif r == -1:
+                    status = "你已經滿血了！"
+                else:
+                    status = "背包裡沒有藥水"
+                continue
+
             dx, dy = 0, 0
             if c == "w":
                 dy = -1
@@ -291,20 +330,48 @@ def main() -> None:
             else:
                 if line_mode:
                     continue
-                status = "請用 WASD、方向鍵、?、q"
+                status = "請用 WASD、方向鍵、e、?、q"
                 continue
 
+            px = c_int()
+            py = c_int()
+            lib.rc_game_player(g, ctypes.byref(px), ctypes.byref(py))
+            atk_x, atk_y = px.value + dx, py.value + dy
+            pre_monsters = get_monsters()
             mv = lib.rc_game_move(g, dx, dy)
             cmsg = get_combat_msg()
             if mv == 1:
                 status = "撞牆"
             elif mv == 2:
+                for mx, my, mhp, mtype in pre_monsters:
+                    if mx == atk_x and my == atk_y:
+                        post_monsters = get_monsters()
+                        still = next(
+                            (m for m in post_monsters if m[0] == mx and m[1] == my),
+                            None,
+                        )
+                        recent_mon = still if still else (mx, my, 0, mtype)
+                        break
                 status = cmsg if cmsg else "攻擊！"
             elif mv == 3:
                 status = cmsg if cmsg else "你死了！"
             elif mv < 0:
                 status = "無效移動"
             else:
+                post_items = get_items()
+                lib.rc_game_player(g, ctypes.byref(px), ctypes.byref(py))
+                near_item = None
+                near_dist = 10**9
+                for ix, iy, itype in post_items:
+                    if abs(ix - px.value) > 1 or abs(iy - py.value) > 1:
+                        continue
+                    if ix == px.value and iy == py.value:
+                        continue
+                    d = abs(ix - px.value) + abs(iy - py.value)
+                    if d < near_dist:
+                        near_dist = d
+                        near_item = (ix, iy, itype)
+                recent_item = near_item
                 if cmsg:
                     status = cmsg
                 else:

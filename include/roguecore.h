@@ -92,6 +92,14 @@ int rc_game_steps_max(const void *handle);
 /** 步數是否耗盡 */
 int rc_game_timeout(const void *handle);
 
+/** 背包中的藥水數量 */
+int rc_game_potions(const void *handle);
+
+/** 使用一瓶背包藥水；回傳 1 成功、0 無藥水、-1 已滿血 */
+int rc_game_use_potion(void *handle);
+
+#define RC_MAX_POTIONS 5
+
 #define RC_VIS_UNSEEN 0u
 #define RC_VIS_EXPLORED 1u
 #define RC_VIS_VISIBLE 2u

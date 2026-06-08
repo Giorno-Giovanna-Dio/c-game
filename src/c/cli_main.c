@@ -61,6 +61,7 @@ static void print_help(void) {
     puts("  ~ = 閃現卷軸（走上去拾取，瞬移到安全位置）");
     puts("  % = 地圖卷軸（走上去拾取，揭示全層地形）");
     puts("  # = 牆  . = 地板  > = 樓梯");
+    puts("  e = 使用背包藥水（滿血拾取藥水會自動存入背包，最多 5 瓶）");
     puts("  互動模式：直接按鍵不必 Enter；--line-mode 則每行一個字母再 Enter");
     puts("目標：避開或擊殺怪物，在步數耗盡前走到樓梯。善用道具生存！");
     puts("");
@@ -310,10 +311,15 @@ int main(int argc, char **argv) {
         }
         print_hp_bar(rc_game_player_hp(g), rc_game_player_max_hp(g));
         int step_warn = (steps <= steps_max / 4);
+        int pots = rc_game_potions(g);
         if (g_use_color) {
-            printf("  %s步數 %d/%d%s\n\n", step_warn ? ANSI_WARN : ANSI_DIM, steps, steps_max, ANSI_RESET);
+            printf("  %s步數 %d/%d%s", step_warn ? ANSI_WARN : ANSI_DIM, steps, steps_max, ANSI_RESET);
+            if (pots > 0) printf("  %s藥水 x%d%s", ANSI_ITEM_POTION, pots, ANSI_RESET);
+            printf("\n\n");
         } else {
-            printf("  步數 %d/%d\n\n", steps, steps_max);
+            printf("  步數 %d/%d", steps, steps_max);
+            if (pots > 0) printf("  藥水 x%d", pots);
+            printf("\n\n");
         }
 
         refresh_monsters(g);
@@ -414,6 +420,19 @@ int main(int argc, char **argv) {
             continue;
         }
 
+        if (c == 'e') {
+            int r = rc_game_use_potion(g);
+            const char *pmsg = rc_game_last_message(g);
+            if (r == 1) {
+                status = (pmsg && pmsg[0]) ? pmsg : "使用藥水！";
+            } else if (r == -1) {
+                status = "你已經滿血了！";
+            } else {
+                status = "背包裡沒有藥水";
+            }
+            continue;
+        }
+
         int dx = 0, dy = 0;
         if (c == 'w') {
             dy = -1;
@@ -430,7 +449,7 @@ int main(int argc, char **argv) {
         } else {
 #ifdef RC_TTY_UI
             if (!g_line_mode) {
-                status = "請用 WASD、方向鍵、?、q";
+                status = "請用 WASD、方向鍵、e、?、q";
             }
 #endif
             continue;
